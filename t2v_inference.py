@@ -1,6 +1,6 @@
 import torch
 from diffusers import AnimateDiffPipeline, LCMScheduler, MotionAdapter
-from diffusers.utils import export_to_gif
+from diffusers.utils import export_to_gif, export_to_video
 import os
 from masactrl.masactrl import MutualMotionAttentionControl
 from masactrl.masactrl_utils import regiter_motion_attention_editor_diffusers
@@ -50,7 +50,7 @@ def main(args) :
 
     print(f' \n step 2. save_base_dir')
     num_frames = 16
-    save_base_dir = f'experiment_20240710/general_prompt_num_frames_{num_frames}_0709'
+    save_base_dir = f'experiment_20240710_mp4/general_prompt_num_frames_{num_frames}_0709'
     os.makedirs(save_base_dir, exist_ok=True)
 
     print(f' \n step 3. inference test')
@@ -104,8 +104,9 @@ def main(args) :
                     save_folder = os.path.join(base_folder, f'origin')
                     #save_folder = os.path.join(base_folder, f'origin_elapse_time_{elapse_time}')
                     os.makedirs(save_folder, exist_ok=True)
-                    save_name = f'prompt_{p}_seed_{seed}.gif'
-                    export_to_gif(frames, os.path.join(save_folder, save_name))
+                    save_name = f'prompt_{save_p}_seed_{seed}.mp4'
+                    #export_to_gif(frames, os.path.join(save_folder, save_name))
+                    export_to_video(frames, os.path.join(save_folder, save_name))
 
                     # text recording
                     with open(os.path.join(save_folder, 'elapse_time.txt'), 'w') as f :
@@ -133,8 +134,9 @@ def main(args) :
                         frames = output.frames[0]
                         save_folder = os.path.join(base_folder, f'{skip_layer}')
                         os.makedirs(save_folder, exist_ok=True)
-                        save_name = f'prompt_{p}_seed_{seed}.gif'
-                        export_to_gif(frames, os.path.join(save_folder, save_name))
+                        save_name = f'prompt_{save_p}_seed_{seed}.mp4'
+                        #export_to_gif(frames, os.path.join(save_folder, save_name))
+                        export_to_video(frames, os.path.join(save_folder, save_name))
 
 if __name__ == "__main__" :
     import argparse

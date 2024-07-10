@@ -34,7 +34,8 @@ from diffusers.models import MotionAdapter
 from diffusers.pipelines import AnimateDiffPipeline
 import transformers
 from transformers import CLIPTextModel, CLIPTokenizer
-from data.dataset import WebVid10M
+#from data.dataset import WebVid10M
+from data.dataset_gen import DistillWebVid10M
 from animatediff.models.unet import UNet3DConditionModel
 from accelerate import accelerator
 from utils.layer_dictionary import find_layer_name
@@ -228,8 +229,8 @@ def main(image_finetune: bool,
         student_unet.enable_gradient_checkpointing()
 
     logger.info(f'\n step 5. Get the training dataset')
-    train_dataset = WebVid10M(csv_path=r'/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-csv/0000_1.csv',
-                              video_folder=r'/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-video',
+    train_dataset = DistillWebVid10M(csv_path=args.csv_path,
+                              video_folder=args.video_folder,
                               sample_size=512,
                               sample_stride=4,
                               sample_n_frames=args.sample_n_frames,
@@ -298,12 +299,12 @@ def main(image_finetune: bool,
     # Support mixed-precision training
     #scaler = torch.cuda.amp.GradScaler() if mixed_precision_training else None
     for epoch in range(first_epoch, num_train_epochs):
-        
         #student_unet = accelerator.prepare(student_unet)
         student_unet.train()
-
+        print(f' *** epoch: {epoch}')
+        print(f'len of train_dataloader={len(train_dataloader)}')
         for step, batch in enumerate(train_dataloader):
-
+            print(f' *** step: {step}')
             if args.motion_control:
                 student_motion_controller.reset()
                 teacher_motion_controller.reset()
@@ -511,6 +512,8 @@ if __name__ == "__main__":
     parser.add_argument('--loss_feature_weight', type=float, default=1.0)
     parser.add_argument('--guidance_scale', type=float, default=1.5)
     parser.add_argument('--inference_step', type=int, default=6)
+    parser.add_argument('--csv_path', type=str, default='data/webvid-10M.csv')
+    parser.add_argument('--video_folder', type=str, default='data/webvid-10M')
     args = parser.parse_args()
     name = Path(args.config).stem
     config = OmegaConf.load(args.config)

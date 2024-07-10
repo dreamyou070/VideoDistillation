@@ -12,7 +12,7 @@
 # If I use down_0_0, can it be ... ?
 # #--motion_control \
 port_number=50093
-accelerate launch --config_file ../gpu_config/gpu_0_1_config \
+accelerate launch --config_file ../gpu_config/gpu_0_config \
  --main_process_port $port_number \
  train_distill.py \
  --sub_folder_name 'down_3_1_mid_up_0_1_distill_weight_1.0_vlb_weight_0.0_loss_feature_weight_0.0' \
@@ -22,4 +22,6 @@ accelerate launch --config_file ../gpu_config/gpu_0_1_config \
  --inference_step 12 \
  --guidance_scale 2.0 --motion_control \
  --skip_layers "['down_3_1','mid','up_0_1',]" \
+ --csv_path "/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-csv/0_100.csv" \
+ --video_folder "/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-partial-video" \
  --distill_weight 0.0 --vlb_weight 1.0 --loss_feature_weight 0.0
