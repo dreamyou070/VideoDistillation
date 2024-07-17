@@ -128,7 +128,6 @@ class MutualMotionAttentionControl(AttentionBase):
                  total_frame_num = 64,
                  skip_layers = ['down_0_0'],
                  is_teacher = False,
-                 is_eval = False,
                  do_attention_map_check = False) :
         """
         Mutual self-attention control for Stable-Diffusion model
@@ -166,7 +165,6 @@ class MutualMotionAttentionControl(AttentionBase):
         self.skip_layers = skip_layers
         self.layerwise_hidden_dict = {}
         self.is_teacher = is_teacher
-        self.is_eval = is_eval
         self.do_attention_map_check = do_attention_map_check
 
 

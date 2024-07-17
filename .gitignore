@@ -1,0 +1,14 @@
+*.txt
+*.png
+*.mp4
+*.gif
+*.jpg
+*.xml
+*.csv
+*.xlsx
+wandb
+experiment
+huggingface_hub
+pytorch-fid
+*__pycache__/
+diffusers
