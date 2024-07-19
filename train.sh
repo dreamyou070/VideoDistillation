@@ -2,23 +2,23 @@
 echo $CUDA_VISIBLE_DEVICES
 echo $SLURM_NODELIST
 echo $SLURM_NODEID
-
-python train.py \
+# 'up_0_0','up_1_0','up_2_0','up_3_0',
+CUDA_VISIBLE_DEVICES=1 python train.py \
  --use_wandb \
  --seed 42 \
  --output_dir 'experiment' \
  --teacher_motion_model_dir "wangfuyun/AnimateLCM" \
  --pretrained_model_path "emilianJR/epiCRealism" \
- --sub_folder_name 'experiment_up_0_distill_from_teacher_distill_dataframe_8' \
+ --sub_folder_name 'experiment_up_0_distill_from_teacher_distill_dataframe_8_tiktok_distill_loss_1_feature_loss_1' \
  --max_train_steps 300000 \
  --config configs/training/v1/training.yaml \
- --sample_n_frames 8 \
+ --sample_n_frames 1 \
  --datavideo_size 512 \
  --inference_step 6 \
  --num_frames 16 \
  --motion_control \
  --guidance_scale 2.0 \
- --skip_layers " ['up_0_0','up_1_0','up_2_0','up_3_0',]" \
+ --skip_layers " []" \
  --csv_path "../MyData/video/TikTok/tiktok_dataset.csv" \
  --video_folder "../MyData/video/TikTok/TikTok_Video" \
  --distill_weight 1.0 --vlb_weight 0.0 --loss_feature_weight 1.0 \

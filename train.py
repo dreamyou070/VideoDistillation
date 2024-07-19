@@ -36,7 +36,7 @@ from diffusers.training_utils import EMAModel
 from  diffusers.models import AutoencoderKL, ImageProjection, UNet2DConditionModel, UNetMotionModel
 from diffusers import DDPMScheduler
 from utils.diffusion_misc import *
-lcm_scheduler = LCMScheduler.from_config(teacher_pipe.scheduler.config)
+#lcm_scheduler = LCMScheduler.from_config(teacher_pipe.scheduler.config)
 
 from diffusers.video_processor import VideoProcessor
 import numpy as np
@@ -101,7 +101,8 @@ def main(args):
 
     logger.info(f' step 4. noise scheduler')
     noise_scheduler = DDPMScheduler.from_pretrained("runwayml/stable-diffusion-v1-5", subfolder="scheduler",
-                                                    revision=args.teacher_revision, beta_schedule=args.beta_schedule,)
+                                                    #revision=args.teacher_revision,
+                                                    beta_schedule=args.beta_schedule,)
 
     print(f' step 5. ODE Solver (erasing noise)')
     alpha_schedule = torch.sqrt(noise_scheduler.alphas_cumprod)
@@ -126,11 +127,11 @@ def main(args):
 
     print(f' step 8. student model')
     student_adapter = MotionAdapter.from_pretrained(args.teacher_motion_model_dir,torch_dtpe=weight_dtype).to(device, dtype=weight_dtype)
-    student_config = student_adapter.config
+    student_adapter_config = student_adapter.config
     pretrained_state_dict = student_adapter.state_dict()
     if args.random_init: # make another module
         print(f' student adapter random initialization')
-        student_adapter = MotionAdapter(**student_config)
+        student_adapter = MotionAdapter(**student_adapter_config)
         random_state_dict = student_adapter.state_dict()
         for key in random_state_dict.keys():
             raw_value = random_state_dict[key]
@@ -310,7 +311,8 @@ def main(args):
     ##########################################################################################
     # Only show the progress bar once on each machine.
     scaler = torch.cuda.amp.GradScaler() if args.mixed_precision_training else None
-    progress_bar.set_description("Steps")
+    progress_bar = tqdm(range(global_step, args.max_train_steps), desc="Steps")
+
     unet_dict = {}
     for epoch in range(first_epoch, args.num_train_epochs):
         teacher_unet.train()
@@ -321,8 +323,8 @@ def main(args):
             if step == 0:
                 print(f' [epoch {epoch}] evaluation')
                 validation_prompts = [
-                    "A person dances outdoors, shifting from one leg extended and arms outstretched to an upright stance with arms at shoulder height. They then alternate between poses: one leg bent, the other extended, and arms in various positions."
-                    # "A video of a woman, having a selfie",
+                    # "A person dances outdoors, shifting from one leg extended and arms outstretched to an upright stance with arms at shoulder height. They then alternate between poses: one leg bent, the other extended, and arms in various positions."
+                    "A video of a woman, having a selfie",
                     # "portrait photo of a girl, photograph, highly detailed face, depth of field, moody light, golden hour, style by Dan Winters, Russell James, Steve McCurry, centered, extremely detailed, Nikon D850, award winning photography",
                     # "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k",
                     # "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k",
@@ -334,15 +336,33 @@ def main(args):
                     # "An astronaut riding a pig, highly realistic dslr photo, cinematic shot.",
                     ]
                 with torch.no_grad():
+
+                    ###########################################################################################################
+                    # --------------- # --------------- # --------------- # --------------- # --------------- # ---------------
+                    # [1] motion adapter
                     eval_adapter = MotionAdapter.from_config(student_adapter_config)
                     eval_adapter_state_dict = {}
-                    eval_dict = eval_adapter.state_dict()
-                    for key, value in eval_dict.items():
-                        if key in student_unet.state_dict().keys():
-                            eval_adapter_state_dict[key] = value
+                    for key in student_unet.state_dict().keys():
+                        if 'motion' in key :
+                            eval_adapter_state_dict[key] = student_unet.state_dict()[key]
                     eval_adapter.load_state_dict(eval_adapter_state_dict)
+                    # --------------- # --------------- # --------------- # --------------- # --------------- # ---------------
+                    ############################################################################################################
+
+                    # [2] basic unet
                     evaluation_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",
-                                                                          motion_adapter=eval_adapter)
+                                                                           motion_adapter=eval_adapter,
+                                                                           torch_dtype=torch.float16)
+                    # [3] scheduler
+                    evaluation_pipe.scheduler = LCMScheduler.from_config(evaluation_pipe.scheduler.config, beta_schedule="linear")
+
+                    # [4]
+                    evaluation_pipe.load_lora_weights("wangfuyun/AnimateLCM",
+                                                      weight_name="AnimateLCM_sd15_t2v_lora.safetensors",
+                                                      adapter_name="lcm-lora")
+                    evaluation_pipe.set_adapters(["lcm-lora"], [0.8])
+
+                    # [5]
                     eval_unet = evaluation_pipe.unet
                     eval_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
                                                                           frame_num=16,
@@ -353,18 +373,9 @@ def main(args):
                                                                           skip_layers=skip_layers,
                                                                           is_teacher=False, )
                     regiter_motion_attention_editor_diffusers(eval_unet, eval_motion_controller)
+                    evaluation_pipe.unet = eval_unet
 
-                    # load state dict
-                    trained_value = student_unet.state_dict()
-                    eval_unet.load_state_dict(trained_value)
-                    scheduler_basic_config = noise_scheduler.config
-                    # [3] scheduler
-                    evaluation_pipe.scheduler = LCMScheduler.from_config(scheduler_basic_config)
                     # [4] lcm lora
-                    evaluation_pipe.load_lora_weights("wangfuyun/AnimateLCM",
-                                                      weight_name="AnimateLCM_sd15_t2v_lora.safetensors",
-                                                      adapter_name="lcm-lora")
-                    evaluation_pipe.set_adapters(["lcm-lora"], [0.8])
                     evaluation_pipe.enable_vae_slicing()
                     evaluation_pipe.to('cuda')
 
@@ -425,7 +436,7 @@ def main(args):
                 latents = latents * 0.18215
             noise = torch.randn_like(latents).to(device, dtype=weight_dtype)
             bsz = latents.shape[0]
-            # ------------------------------------------------------------------------------------------------------- #
+
             # [2]
             timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
             timesteps = timesteps.long() # torch
@@ -467,9 +478,18 @@ def main(args):
                 student_motion_controller.reset()
                 teacher_motion_controller.reset()
 
+
+            #########################################################################################################
+            # [1] Teacher Distillation
+            loss_vlb = F.mse_loss(student_model_pred.float(), target.float(), reduction="mean")
+            loss_distill = F.mse_loss(student_model_pred.float(), teacher_model_pred.float(), reduction="mean")
+            total_loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill
+            if args.motion_control:
+                total_loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill + args.loss_feature_weight * loss_feature
             ########################################################################################################
+            """
             # [3] aesthetic
-            if args.aesthetic_score:
+            if args.do_aesthetic_loss :
                 pred_x_0_stu = get_predicted_original_sample(student_model_pred,
                                                              timesteps, noisy_latents,
                                                              noise_scheduler.config.prediction_type,
@@ -485,25 +505,14 @@ def main(args):
                     video = video_processor.postprocess_video(video=video_tensor, output_type=output_type)[0]
                     video_tensor = load_img(video).unsqueeze(0)
                     frames = video_tensor
-                    if args.do_aesthetic_loss :
-                        aesthetic_loss, aesthetic_rewards = aesthetic_loss_fn(frames.to(device = device, dtype = weight_dtype))  # video_frames_ in range [-1, 1]
-                        loss_dict["aesthetic_loss"] = aesthetic_loss
-                        loss_unet_total += aesthetic_loss
-                        wandb.log({"aesthetic_loss": aesthetic_loss.item()}, step=global_step)
+                aesthetic_loss, aesthetic_rewards = aesthetic_loss_fn(frames.to(device = device, dtype = weight_dtype))  # video_frames_ in range [-1, 1]
+                wandb.log({"aesthetic_loss": aesthetic_loss.item()}, step=global_step)
                 total_loss += args.aesthetic_score_weight * aesthetic_loss
-                
-            #########################################################################################################
-            # [1] Teacher Distillation
-            loss_vlb = F.mse_loss(student_model_pred.float(), target.float(), reduction="mean")
-            loss_distill = F.mse_loss(student_model_pred.float(), teacher_model_pred.float(), reduction="mean")
-            total_loss += args.vlb_weight * loss_vlb + args.distill_weight * loss_distill
-            if args.motion_control:
-                total_loss += args.loss_feature_weight * loss_feature
-
+            """
             optimizer.zero_grad()
-            loss.backward()
+            total_loss.backward()
             if args.mixed_precision_training:
-                scaler.scale(loss).backward()
+                scaler.scale(total_loss).backward()
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(parameters_list,args.max_grad_norm)
                 scaler.step(optimizer)
@@ -511,7 +520,7 @@ def main(args):
             else:
                 torch.nn.utils.clip_grad_norm_(student_unet.parameters(), args.max_grad_norm)
                 optimizer.step()
-
+            """
             for name, param in student_unet.named_parameters():
                 if param.requires_grad:
                     if name not in unet_dict:
@@ -524,11 +533,12 @@ def main(args):
                         unet_dict[name].append(param.detach().cpu())
                         equal_check = torch.equal(before, present)
                         print(f'{name} equal check = {equal_check}')
+            """
             
             lr_scheduler.step()
             progress_bar.update(1)
             global_step += 1
-            wandb.log({"train_loss": loss.item()}, step=global_step)
+            wandb.log({"train_loss": total_loss.item()}, step=global_step)
             wandb.log({"loss_vlb": loss_vlb.item()}, step=global_step)
             wandb.log({"loss_distill": loss_distill.item()}, step=global_step)
             if args.motion_control:
@@ -608,6 +618,13 @@ if __name__ == "__main__":
     parser.add_argument("--per_gpu_batch_size", type=int, default=1)
     parser.add_argument("--do_window_attention", action="store_true")
     parser.add_argument("--datavideo_size", type = int, default = 512)
+    parser.add_argument(
+        "--beta_schedule",
+        default="scaled_linear",
+        type=str,
+        help="The schedule to use for the beta values.",
+    )
+    parser.add_argument("--do_aesthetic_loss",action='store_true', )
     args = parser.parse_args()
     name = Path(args.config).stem
     main(args)
