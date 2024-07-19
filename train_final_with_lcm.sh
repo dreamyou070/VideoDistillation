@@ -13,7 +13,7 @@ CUDA_VISIBLE_DEVICES=0 python train_final_real.py \
  --pretrained_model_path "runwayml/stable-diffusion-v1-5" \
  --teacher_motion_adapter_path "guoyww/animatediff-motion-adapter-v1-5-2" \
  --student_motion_adapter_path "wangfuyun/AnimateLCM" \
- --sub_folder_name 'experiment_up_0_distill_from_origin_dataframe_8' \
+ --sub_folder_name 'experiment_up_0_distill_from_origin_dataframe_8_with_lcm_lora' \
  --max_train_steps 300000 \
  --config configs/training/v1/training.yaml \
  --sample_n_frames 8 \
