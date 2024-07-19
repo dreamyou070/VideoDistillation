@@ -1,11 +1,12 @@
 import torch
 from torch import Tensor
-from .optimizer import (Optimizer, _use_grad_for_differentiable, _get_value, _dispatch_sqrt,
-                        _stack_if_compiling, _get_scalar_dtype, _capturable_doc, _differentiable_doc,
-                        _foreach_doc, _fused_doc, _maximize_doc, _default_to_fused_or_foreach,
-                        ParamsT, _view_as_real)
+from torch.optim.optimizer import (Optimizer, _use_grad_for_differentiable, _get_value, _dispatch_sqrt,
+                                _stack_if_compiling, _get_scalar_dtype, _capturable_doc, _differentiable_doc,
+                                _foreach_doc, _fused_doc, _maximize_doc, _default_to_fused_or_foreach,
+                                ParamsT, _view_as_real)
 from typing import List, Optional, Tuple, Union
 from torch.utils._foreach_utils import _get_fused_kernels_supported_devices
+
 class AdamW(Optimizer):
     def __init__(
         self,
@@ -88,7 +89,7 @@ class AdamW(Optimizer):
         self,
         group,
         params_with_grad,
-        grads,
+        grads, ########
         amsgrad,
         exp_avgs,
         exp_avg_sqs,
@@ -100,12 +101,13 @@ class AdamW(Optimizer):
             if p.grad is None:
                 continue
             has_complex |= torch.is_complex(p)
-            params_with_grad.append(p)
+            params_with_grad.append(p) # add parameter
             if p.grad.is_sparse:
                 raise RuntimeError("AdamW does not support sparse gradients")
-            grads.append(p.grad)
+            grads.append(p.grad) # add gradient
 
-            state = self.state[p]
+            state = self.state[p] # self.state[p] (original)
+            # state / exp_avgs / exp_avg_sqs
 
             # State initialization
             if len(state) == 0:
@@ -169,22 +171,20 @@ class AdamW(Optimizer):
             state_steps = []
             amsgrad = group["amsgrad"]
             beta1, beta2 = group["betas"]
+            # init group
+            #
+            has_complex = self._init_group(group,
+                                           params_with_grad, # params_with_grad ?
+                                            grads,
+                                            amsgrad,
+                                            exp_avgs,
+                                            exp_avg_sqs,
+                                            max_exp_avg_sqs,
+                                            state_steps,)
 
-            has_complex = self._init_group(
-                group,
-                params_with_grad,
-                grads,
-                amsgrad,
-                exp_avgs,
-                exp_avg_sqs,
-                max_exp_avg_sqs,
-                state_steps,
-            )
-
-            adamw(
-                params_with_grad,
-                grads,
-                exp_avgs,
+            adamw(params_with_grad, ##########
+                  grads,            ######
+                  exp_avgs,
                 exp_avg_sqs,
                 max_exp_avg_sqs,
                 state_steps,
@@ -201,8 +201,7 @@ class AdamW(Optimizer):
                 fused=group["fused"],
                 grad_scale=getattr(self, "grad_scale", None),
                 found_inf=getattr(self, "found_inf", None),
-                has_complex=has_complex,
-            )
+                has_complex=has_complex,)
 
         return loss
 
@@ -262,16 +261,17 @@ def adamw(
         raise RuntimeError("torch.jit.script not supported with foreach optimizers")
     if fused and torch.jit.is_scripting():
         raise RuntimeError("torch.jit.script not supported with fused optimizers")
-
+    ########################################################################################################
+    # set func
     if fused and not torch.jit.is_scripting():
         func = _fused_adamw
     elif foreach and not torch.jit.is_scripting():
         func = _multi_tensor_adamw
     else:
+        ################################################
         func = _single_tensor_adamw
-
-    func(
-        params,
+    # grads : list of tensors
+    func(params,
         grads,
         exp_avgs,
         exp_avg_sqs,
@@ -324,6 +324,7 @@ def _single_tensor_adamw(
 
     for i, param in enumerate(params):
         grad = grads[i] if not maximize else -grads[i]
+        ##########################################
         exp_avg = exp_avgs[i]
         exp_avg_sq = exp_avg_sqs[i]
         step_t = state_steps[i]
@@ -344,9 +345,11 @@ def _single_tensor_adamw(
 
         # update step
         step_t += 1
-
         # Perform stepweight decay
-        param.mul_(1 - lr * weight_decay)
+        #param.mul_(1 - lr * weight_decay)
+        before_param = param.clone().detach()
+        param = torch.mul(param, 1 - lr * weight_decay)
+        after_param = param.clone().detach()
 
         # Decay the first and second moment running average coefficient
         exp_avg.lerp_(grad, 1 - beta1)
@@ -354,24 +357,18 @@ def _single_tensor_adamw(
 
         if capturable or differentiable:
             step = step_t
-
             bias_correction1 = 1 - beta1 ** step
             bias_correction2 = 1 - beta2 ** step
-
             step_size = lr / bias_correction1
             step_size_neg = step_size.neg()
-
             bias_correction2_sqrt = bias_correction2.sqrt()
-
             if amsgrad:
                 # Maintains the maximum of all 2nd moment running avg. till now
                 if differentiable:
                     max_exp_avg_sq = max_exp_avg_sqs[i].clone()
                 else:
                     max_exp_avg_sq = max_exp_avg_sqs[i]
-
                 max_exp_avg_sqs[i].copy_(torch.maximum(max_exp_avg_sq, exp_avg_sq))
-
                 # Uses the max. for normalizing running avg. of gradient
                 # Folds in (admittedly ugly) 1-elem step_size math here to avoid extra param-set-sized read+write
                 # (can't fold it into addcdiv_ below because addcdiv_ requires value is a Number, not a Tensor)
@@ -384,26 +381,29 @@ def _single_tensor_adamw(
                 ).add_(eps / step_size_neg)
 
             param.addcdiv_(exp_avg, denom)
+
+
         else:
             step = _get_value(step_t)
-
             bias_correction1 = 1 - beta1 ** step
             bias_correction2 = 1 - beta2 ** step
-
             step_size = lr / bias_correction1
-
             bias_correction2_sqrt = _dispatch_sqrt(bias_correction2)
-
             if amsgrad:
                 # Maintains the maximum of all 2nd moment running avg. till now
                 torch.maximum(max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i])
-
                 # Use the max. for normalizing running avg. of gradient
                 denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(eps)
             else:
                 denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
 
+
             param.addcdiv_(exp_avg, denom, value=-step_size)
+        final_param = param.clone().detach()
+        # update final param
+        params[i] = final_param
+        #self.param_groups[0]['params'][i] = final_param
+        #print(f'type of final_param : {type(final_param)}')
 
         # Lastly, switch back to complex view
         if amsgrad and torch.is_complex(params[i]):

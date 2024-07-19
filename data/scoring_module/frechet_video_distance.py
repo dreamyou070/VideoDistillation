@@ -21,7 +21,7 @@ import re
 import html
 import io
 import uuid
-
+"""
 _feature_detector_cache = dict()
 
 
@@ -92,12 +92,12 @@ def get_feature_detector(detector_url, device):
             _feature_detector_cache[key] = torch.jit.load(f).eval().to(device)
     return _feature_detector_cache[key]
 
-
+"""
 """
 This function is used to first extract feature representation vectors of the videos using a pretrained model
 Then the mean and covariance of the representation vectors are calculated and returned
 """
-
+"""
 
 def compute_feature_stats(data, detector_url, detector_kwargs, batch_size, max_items, device):
     # if wanted reduce the number of elements used for calculating the FVD
@@ -105,13 +105,10 @@ def compute_feature_stats(data, detector_url, detector_kwargs, batch_size, max_i
     if max_items:
         num_items = min(num_items, max_items)
     data = data[:num_items]
-    first = data[0] # [1,512]
-    print(f'first.shape = {first.shape} ')
 
     # load the pretrained feature extraction modeö
     detector = get_feature_detector(detector_url, device=device)
-    data = torch.cat(data, dim=0)
-    print(f' stack, data.shape = {data.shape}')
+
     dataset = TensorDataset(data)
     loader = DataLoader(dataset, batch_size=batch_size)
     all_features = []
@@ -136,13 +133,13 @@ def compute_feature_stats(data, detector_url, detector_kwargs, batch_size, max_i
     sigma = np.cov(stacked_features, rowvar=False)
 
     return mu, sigma
-
+"""
 
 """
 This function calculates the Frechet Video Distance of two tensors representing a collection of videos
 The input tensors should have shape num_videos x channels x num_frames x width x height
 As the calculation of frechet video distance can be expensive max_items can be defined to estimate FVD on a subset
-"""
+
 
 
 def compute_fvd(y_true: torch.Tensor, y_pred: torch.Tensor, max_items: int, device: torch.device, batch_size: int):
@@ -160,3 +157,103 @@ def compute_fvd(y_true: torch.Tensor, y_pred: torch.Tensor, max_items: int, devi
     s, _ = scipy.linalg.sqrtm(np.dot(sigma_pred, sigma_true), disp=False)
     fvd = np.real(m + np.trace(sigma_pred + sigma_true - s * 2))
     return float(fvd)
+"""
+#########
+import numpy as np
+import cv2
+import tensorflow as tf
+from scipy.linalg import sqrtm
+
+import numpy as np
+import cv2
+import torch
+import torchvision
+import torch.nn as nn
+from scipy.linalg import sqrtm
+from torchvision import models, transforms
+
+
+# Load pre-trained InceptionV3 model for feature extraction
+def load_inceptionv3_model():
+
+    # load model
+    # torchvision.models.inception_v3(pretrained=True, aux_logits=False)
+    model = models.inception_v3(pretrained=True)
+                                #aux_logits=False)
+
+    model.fc = nn.Identity()  # Remove the final classification layer
+    model.eval()
+    return model
+
+
+# Read video and preprocess to extract frames
+def read_video(video_path, max_frames=64):
+    cap = cv2.VideoCapture(video_path)
+    frames = []
+    while len(frames) < max_frames:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = cv2.resize(frame, (299, 299))
+        frames.append(frame)
+    cap.release()
+    frames = np.array(frames)
+    return frames
+
+
+# Extract features using the InceptionV3 model
+def extract_features(model, frames, device):
+    preprocess = transforms.Compose([transforms.ToTensor(),
+                                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])
+    #for frame in frames :
+    #    print(f' frame np = {frame.shape}')
+    #    frame_th = preprocess(frame) # be torch
+    #    print(f' frame th = {frame_th.shape}')
+    #frames = np.array([preprocess(frame) for frame in frames])
+    frames = [preprocess(frame) for frame in frames]
+    # should be
+    frames = torch.stack(frames).to(device)
+    with torch.no_grad():
+        features = model(frames)
+    return features.cpu().numpy()
+
+
+# Calculate the Frechet Distance
+def calculate_frechet_distance(mu1, sigma1, mu2, sigma2):
+    ssdiff = np.sum((mu1 - mu2) ** 2.0)
+    covmean = sqrtm(sigma1.dot(sigma2))
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+    return ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
+
+
+# Calculate FVD between two videos
+def calculate_fvd(video_path_1, video_path_2):
+
+    # [1] load model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = load_inceptionv3_model().to(device)
+
+    # [2] read video
+    frames_1 = read_video(video_path_1) # [frame_num, h, w, c], numpy array
+    frames_2 = read_video(video_path_2)
+
+    # [3] get features
+    features_1 = extract_features(model, frames_1, device) # torch,
+    features_2 = extract_features(model, frames_2, device)
+    mu1, sigma1 = np.mean(features_1, axis=0), np.cov(features_1, rowvar=False)
+    mu2, sigma2 = np.mean(features_2, axis=0), np.cov(features_2, rowvar=False)
+
+    # [4] calculate fvd
+    fvd = calculate_frechet_distance(mu1, sigma1, mu2, sigma2)
+    return fvd
+
+"""
+# Example usage
+base_dir = r'/share0/dreamyou070/dreamyou070/OneStepVideo/experiment_20240710_jpg_gif_mp4/general_prompt_num_frames_16_0709/prompt_idx_000/guidance_1.5_inference_6/'
+video_path_1 = os.path.join(base_dir, r'down_blocks_0_motion_modules_0/prompt_000_seed_0.mp4')
+video_path_2 = os.path.join(base_dir, r'origin/prompt_000_seed_0.mp4')
+
+fvd_score = calculate_fvd(video_path_1, video_path_1) # low value is good
+print('Frechet Video Distance (FVD) (btw two same video) :', fvd_score)
+"""

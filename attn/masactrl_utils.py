@@ -323,11 +323,10 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
 
             input = hidden_states
             do_skip = False
-            for skip_layer in editor.skip_layers:
-                if skip_layer == layer_name.lower():
-                    do_skip = True
-                #print(f' editor skip layer = {skip_layer} | layer_name = {layer_name} | do_skip = {do_skip} | editor.is_teacher = {editor.is_teacher} ')
-
+            if len(editor.skip_layers) > 0:
+                for skip_layer in editor.skip_layers:
+                    if skip_layer == layer_name.lower():
+                        do_skip = True
             # up_blocks_3_motion_modules_0
             # up_blocks_3_motion_modules_0
 
@@ -335,116 +334,102 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
                 #print(f' editor.skip_layers = {editor.skip_layers}')
                 #print(f' {layer_name} : skip layer')
                 # student save this one (only at training state)
-                #editor.save_hidden_states(hidden_states=input,
-                #                          layer_name=layer_name)
-                #return TransformerTemporalModelOutput(sample=hidden_states)
-                """
-                batch_frames, channel, height, width = hidden_states.shape
-                batch_size = batch_frames // num_frames
-                residual = hidden_states
-                # ------------------------------------------------------------------------------------------------------------------------
-                # Here Reshaping !!
-                # hidden_states = [1, batch*frame, dim, height, width]
-                hidden_states = hidden_states[None, :].reshape(batch_size, num_frames, channel, height, width)
-                # hidden_states = [batch, frame, dim, height, width]
-                hidden_states = hidden_states.permute(0, 2, 1, 3, 4)
-                # hidden_states = [batch, dim, frame, height, width]
-                hidden_states = self.norm(hidden_states)
-                hidden_states = hidden_states.permute(0, 3, 4, 2, 1).reshape(batch_size * height * width, num_frames,
-                                                                             channel)
-                # hidden_states = [batch*height*width, frame, dim]
-                hidden_states = self.proj_in(hidden_states)
-
-                # len of self.transformer_blocks = 1
-                # 2. Blocks
-                if editor.is_teacher:
-                    # what is encoder_hiddeh_states ? None
-                    for block in self.transformer_blocks:
-                        hidden_states = block(hidden_states,
-                                              encoder_hidden_states=encoder_hidden_states,
-                                              timestep=timestep,
-                                              cross_attention_kwargs=cross_attention_kwargs,
-                                              class_labels=class_labels, )
-                else:
-                    # is_student : framewise attention
-                    hidden_states = torch.nn.functional.scaled_dot_product_attention(query=hidden_states,
-                                                                                     key=hidden_states,
-                                                                                     value=hidden_states,
-                                                                                     attn_mask=None, dropout_p=0.0,
-                                                                                     is_causal=False, scale=None)
-                    # for block in self.transformer_blocks:
-                    #    hidden_states = block(hidden_states,
-                    #        encoder_hidden_states=encoder_hidden_states,
-                    #        timestep=timestep,
-                    #        cross_attention_kwargs=cross_attention_kwargs,
-                    #        class_labels=class_labels,)
-                    # hidden_states = self.transformer_blocks[0](hidden_states,
-                    #    encoder_hidden_states=encoder_hidden_states,
-                    #    timestep=timestep,
-                    #    cross_attention_kwargs=cross_attention_kwargs,
-                    #    class_labels=class_labels,)
-                # 3. Output
-                hidden_states = self.proj_out(hidden_states)
-                hidden_states = (
-                    hidden_states[None, None, :]
-                    .reshape(batch_size, height, width, num_frames, channel)
-                    .permute(0, 3, 4, 1, 2)
-                    .contiguous())
-                hidden_states = hidden_states.reshape(batch_frames, channel, height, width)
-
-                output = hidden_states + residual
-                if do_skip and editor.is_teacher and not editor.is_eval:
-                    # only training state
-                    #
-                    is_train = not editor.is_eval
-                    # ' Teacher Saving Time !'
-                    # editor.save_hidden_states(hidden_states=output, layer_name=layer_name)
-
-                if not return_dict:
-                    return (output,)
-                """
-                #print(f'layer {layer_name} skip ! ')
+                editor.save_hidden_states(hidden_states=input,
+                                          layer_name=layer_name)
                 output = hidden_states
                 return TransformerTemporalModelOutput(sample=output)
 
             else :
-                if not do_skip :
-                    editor.save_attention_map(hidden_states, layer_name)
                 # original transformer
-                batch_frames, channel, height, width = hidden_states.shape
+                batch_frames, channel, height, width = hidden_states.shape # batch_fames = frame
                 batch_size = batch_frames // num_frames
                 residual = hidden_states
+                # split_size
+                split_size = 2
+                split_h, split_w = height // split_size, width // split_size
+
                 # ------------------------------------------------------------------------------------------------------------------------
                 # Here Reshaping !!
                 # hidden_states = [1, batch*frame, dim, height, width]
                 hidden_states = hidden_states[None, :].reshape(batch_size, num_frames, channel, height, width)
                 # hidden_states = [batch, frame, dim, height, width]
-                hidden_states = hidden_states.permute(0, 2, 1, 3, 4)
+                hidden_states = hidden_states.permute(0, 2, 1, 3, 4) # [1,
                 # hidden_states = [batch, dim, frame, height, width]
-                hidden_states = self.norm(hidden_states)
-                hidden_states = hidden_states.permute(0, 3, 4, 2, 1).reshape(batch_size * height * width, num_frames,channel)
-                # hidden_states = [batch*height*width, frame, dim]
-                hidden_states = self.proj_in(hidden_states)
+                hidden_states = self.norm(hidden_states) # 2, dim, frame, height, width
+                height = hidden_states.shape[3]
+                if editor.is_teacher :
+                    hidden_states = hidden_states.permute(0, 3, 4, 2, 1).reshape(batch_size * height * width,num_frames, channel)
+                    hidden_states = self.proj_in(hidden_states)
+                    # 2. Blocks
+                    for block in self.transformer_blocks:
+                        hidden_states = block(hidden_states,
+                            encoder_hidden_states=encoder_hidden_states,
+                            timestep=timestep,
+                            cross_attention_kwargs=cross_attention_kwargs,
+                            class_labels=class_labels,)
+                    # 3. Output
+                    hidden_states = self.proj_out(hidden_states)
+                    hidden_states = (hidden_states[None, None, :].reshape(batch_size, height, width, num_frames, channel).permute(0, 3, 4, 1, 2).contiguous())
+                    hidden_states = hidden_states.reshape(batch_frames, channel, height, width)
 
-                # len of self.transformer_blocks = 1
-                # 2. Blocks
-                #if editor.is_teacher:
-                    # what is encoder_hiddeh_states ? None
-                for block in self.transformer_blocks:
-                    hidden_states = block(hidden_states,
-                        encoder_hidden_states=encoder_hidden_states,
-                        timestep=timestep,
-                        cross_attention_kwargs=cross_attention_kwargs,
-                        class_labels=class_labels,)
-                # 3. Output
-                hidden_states = self.proj_out(hidden_states)
-                hidden_states = (
-                    hidden_states[None, None, :]
-                    .reshape(batch_size, height, width, num_frames, channel)
-                    .permute(0, 3, 4, 1, 2)
-                    .contiguous())
-                hidden_states = hidden_states.reshape(batch_frames, channel, height, width)
+                else : # student
+
+                    if editor.window_attention and height == 64 : # really high
+                        hidden_states = hidden_states.permute(0, 3, 4, 2, 1)  # [batch, height, width, dim, frame] # 2, 64, 64, 320, 16
+                        #########################################################################################################
+                        for h_index in range(split_size):
+                            for w_index in range(split_size):
+                                start_h = h_index * split_h
+                                start_w = w_index * split_w
+                                end_h = start_h + split_h
+                                end_w = start_w + split_w
+                                # [1] get split hidden_states
+                                hidden_states_split = hidden_states[:, start_h:end_h, start_w:end_w, :, :]  # 2, 32, 32, 16, 320
+                                hidden_states_split = hidden_states_split.reshape(batch_size * split_h * split_w,
+                                                                                  num_frames,
+                                                                                  channel)  # 2*32*32, 16,320
+                                hidden_states_split = self.proj_in(hidden_states_split)
+                                for block in self.transformer_blocks:
+                                    hidden_states_split = block(hidden_states_split,
+                                                                encoder_hidden_states=encoder_hidden_states,
+                                                                timestep=timestep,
+                                                                cross_attention_kwargs=cross_attention_kwargs,
+                                                                class_labels=class_labels, )
+                                hidden_states_split = self.proj_out(hidden_states_split)  # 2048, 16, 320
+                                hidden_states_split = (hidden_states_split[None, None, :]  # 1,1,2048,16,320
+                                                       .reshape(batch_size, split_h, split_w, num_frames,
+                                                                channel))  # 2, 32,32,16,320
+                                #########################################################################################################
+                                hidden_states[:, start_h:end_h, start_w:end_w, :, :] = hidden_states_split
+                        # PERMUTE
+                        hidden_states = hidden_states.permute(0, 4, 3, 1, 2).reshape(batch_size * num_frames, channel,
+                                                                                     height, width)
+                        hidden_states = hidden_states.reshape(batch_frames, channel, height, width)
+                    else :
+                        hidden_states = hidden_states.permute(0, 3, 4, 2, 1).reshape(batch_size * height * width,num_frames, channel)
+                        hidden_states = self.proj_in(hidden_states)
+                        # 2. Blocks
+                        for block in self.transformer_blocks:
+                            hidden_states = block(hidden_states,
+                                                  encoder_hidden_states=encoder_hidden_states,
+                                                  timestep=timestep,
+                                                  cross_attention_kwargs=cross_attention_kwargs,
+                                                  class_labels=class_labels, )
+                        # 3. Output
+                        hidden_states = self.proj_out(hidden_states)
+                        hidden_states = (hidden_states[None, None, :].reshape(batch_size, height, width, num_frames,
+                                                                              channel).permute(0, 3, 4, 1,
+                                                                                               2).contiguous())
+                        hidden_states = hidden_states.reshape(batch_frames, channel, height, width)
+
+
+
+
                 output = hidden_states + residual
+                if do_skip and editor.is_teacher :
+                    editor.save_hidden_states(output, layer_name)
+                if not return_dict:
+                    return (output,)
                 return TransformerTemporalModelOutput(sample=output)
         return forward
 
@@ -455,7 +440,6 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
             # start from "TransformerTemporalModel"
             if subnet.__class__.__name__ == 'TransformerTemporalModel' and 'motion' in final_name.lower():
                 # [2] BasicTransformerBlock
-                #print(f' regiter motion attention editor diffusers : {final_name}')
                 subnet.forward = motion_forward_basic(subnet, final_name)
 
             #if subnet.__class__.__name__ == 'Attention' and 'motion' in final_name.lower():  # spatial Transformer layer

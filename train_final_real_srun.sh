@@ -1,0 +1,21 @@
+CUDA_VISIBLE_DEVICES=0 python train_final_real.py \
+ --use_wandb \
+ --seed 42 \
+ --output_dir 'experiment' \
+ --pretrained_model_path "runwayml/stable-diffusion-v1-5" \
+ --teacher_motion_adapter_path "guoyww/animatediff-motion-adapter-v1-5-2" \
+ --student_motion_adapter_path "wangfuyun/AnimateLCM" \
+ --sub_folder_name 'full_CM_distill_data_frame_12' \
+ --max_train_steps 300000 \
+ --config configs/training/v1/training.yaml \
+ --sample_n_frames 12 \
+ --datavideo_size 512 \
+ --inference_step 6 \
+ --num_frames 16 \
+ --motion_control \
+ --guidance_scale 2.0 \
+ --skip_layers "[]" \
+ --csv_path     "../MyData/video/webvid-10M/webvid-10M-csv/0_300.csv" \
+ --video_folder "../MyData/video/webvid-10M/webvid-10M-partial-video" \
+ --distill_weight 1.0 --vlb_weight 0.0 --loss_feature_weight 1.0 \
+ --adam_weight_decay 0.01 --learning_rate 0.0001

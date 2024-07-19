@@ -126,7 +126,7 @@ class MutualMotionAttentionControl(AttentionBase):
                  window_attention = False,
                  window_size = 16,
                  total_frame_num = 64,
-                 skip_layers = ['down_0_0'],
+                 skip_layers = [],
                  is_teacher = False,
                  do_attention_map_check = False) :
         """
@@ -234,7 +234,6 @@ class MutualMotionAttentionControl(AttentionBase):
 
         self.attnmap_dict = {}
         self.layerwise_hidden_dict = {}
-        self.skip_layers = []
 
 
 
@@ -395,7 +394,6 @@ class MutualSelfAttentionControlMaskAuto(MutualSelfAttentionControl):
     def after_step(self):
         self.self_attns = []
         self.cross_attns = []
-
     def attn_batch(self, q, k, v, sim, attn, is_cross, place_in_unet, num_heads, **kwargs):
         """
         Performing attention for a batch of queries, keys, and values
