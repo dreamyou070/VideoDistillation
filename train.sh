@@ -9,10 +9,10 @@ python train.py \
  --output_dir 'experiment' \
  --teacher_motion_model_dir "wangfuyun/AnimateLCM" \
  --pretrained_model_path "emilianJR/epiCRealism" \
- --sub_folder_name 'up_0_0_up_1_0_up_2_0_up_3_0_video_frames_16_distill_weight_1_feature_weight_1_video_size_512_again' \
+ --sub_folder_name 'experiment_up_0_distill_from_teacher_distill_dataframe_8' \
  --max_train_steps 300000 \
  --config configs/training/v1/training.yaml \
- --sample_n_frames 16 \
+ --sample_n_frames 8 \
  --datavideo_size 512 \
  --inference_step 6 \
  --num_frames 16 \
@@ -23,7 +23,6 @@ python train.py \
  --video_folder "../MyData/video/TikTok/TikTok_Video" \
  --distill_weight 1.0 --vlb_weight 0.0 --loss_feature_weight 1.0 \
  --adam_weight_decay 0.01 --learning_rate 0.0001
-
 
 
 

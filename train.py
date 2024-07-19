@@ -35,6 +35,29 @@ import json
 from diffusers.training_utils import EMAModel
 from  diffusers.models import AutoencoderKL, ImageProjection, UNet2DConditionModel, UNetMotionModel
 from diffusers import DDPMScheduler
+from utils.diffusion_misc import *
+lcm_scheduler = LCMScheduler.from_config(teacher_pipe.scheduler.config)
+
+from diffusers.video_processor import VideoProcessor
+import numpy as np
+def decode_latents(vae, latents):
+    latents = 1 / vae.config.scaling_factor * latents
+
+    batch_size, channels, num_frames, height, width = latents.shape
+    latents = latents.permute(0, 2, 1, 3, 4).reshape(batch_size * num_frames, channels, height, width)
+
+    image = vae.decode(latents).sample
+    video = image[None, :].reshape((batch_size, num_frames, -1) + image.shape[2:]).permute(0, 2, 1, 3, 4)
+    # we always cast to float32 as this does not cause significant overhead and is compatible with bfloat16
+    video = video.float()
+    return video
+
+def load_img(img):
+    rgb_img = np.array(img, np.float32).squeeze()
+    img_tensor = torch.from_numpy(rgb_img).permute(2, 0, 1).float()
+
+    img_tensor = (img_tensor / 255. - 0.5) * 2
+    return img_tensor
 def main(args):
 
     GPUtil.showUtilization()
@@ -65,17 +88,6 @@ def main(args):
     output_dir = os.path.join(output_dir, folder_name)
     os.makedirs(output_dir, exist_ok=True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-
-    print(f' step 4. wandb logging')
-    # project
-    wandb.init(project=args.project,
-               entity='dreamyou070',
-               mode='online',
-               name=f'experiment_{args.sub_folder_name}')
-    weight_dtype = torch.float32
-
-    print(f' step 5. make directory')
     save_folder = os.path.join(output_dir, "samples")
     os.makedirs(save_folder, exist_ok=True)
     os.makedirs(f"{output_dir}/sanity_check", exist_ok=True)
@@ -83,16 +95,37 @@ def main(args):
     with open(os.path.join(output_dir, "args.json"), "w") as f:
         json.dump(vars(args), f, indent=4)
 
-    print(f' step 6. make model')
-    logger.info(f' (4.1) teacher')
+    print(f' step 3. wandb logging')
+    wandb.init(project=args.project, entity='dreamyou070', mode='online', name=f'experiment_{args.sub_folder_name}')
+    weight_dtype = torch.float32
+
+    logger.info(f' step 4. noise scheduler')
+    noise_scheduler = DDPMScheduler.from_pretrained("runwayml/stable-diffusion-v1-5", subfolder="scheduler",
+                                                    revision=args.teacher_revision, beta_schedule=args.beta_schedule,)
+
+    print(f' step 5. ODE Solver (erasing noise)')
+    alpha_schedule = torch.sqrt(noise_scheduler.alphas_cumprod)
+    sigma_schedule = torch.sqrt(1 - noise_scheduler.alphas_cumprod)
+    """
+    solver = DDIMSolver(noise_scheduler.alphas_cumprod.numpy(),
+                        timesteps=noise_scheduler.config.num_train_timesteps,
+                        ddim_timesteps=args.num_ddim_timesteps, )
+    """
+    print(f' step 6. pretrained_teacher_model')
     teacher_adapter = MotionAdapter.from_pretrained(args.teacher_motion_model_dir, torch_dtpe=weight_dtype)
     teacher_pipe = AnimateDiffPipeline.from_pretrained(args.pretrained_model_path, motion_adapter=teacher_adapter, torch_dtpe=weight_dtype)
-    noise_scheduler = LCMScheduler.from_config(teacher_pipe.scheduler.config)
-    teacher_pipe.scheduler = noise_scheduler
+    teacher_pipe.load_lora_weights("wangfuyun/AnimateLCM", weight_name="AnimateLCM_sd15_t2v_lora.safetensors", adapter_name="lcm-lora")
+    teacher_pipe.set_adapters(["lcm-lora"], [0.8])
 
-    logger.info(f' (4.2) student')
-    student_adapter = MotionAdapter.from_pretrained(args.teacher_motion_model_dir,
-                                                    torch_dtpe=weight_dtype).to(device, dtype=weight_dtype)
+    print(f' step 7. teacher model')
+    vae = teacher_pipe.vae
+    tokenizer = teacher_pipe.tokenizer
+    text_encoder = teacher_pipe.text_encoder
+    teacher_unet = teacher_pipe.unet
+
+
+    print(f' step 8. student model')
+    student_adapter = MotionAdapter.from_pretrained(args.teacher_motion_model_dir,torch_dtpe=weight_dtype).to(device, dtype=weight_dtype)
     student_config = student_adapter.config
     pretrained_state_dict = student_adapter.state_dict()
     if args.random_init: # make another module
@@ -104,15 +137,12 @@ def main(args):
             pretrained_value = pretrained_state_dict[key]
             equal_check = torch.equal(raw_value, pretrained_value)
             print(f' [randomize] {key} equal_check with pretrained : {equal_check}')
-
-    student_pipe = AnimateDiffPipeline.from_pretrained(args.pretrained_model_path,
-                                                       motion_adapter=student_adapter,
-                                                       torch_dtpe=weight_dtype)
-    vae = teacher_pipe.vae
-    tokenizer = teacher_pipe.tokenizer
-    text_encoder = teacher_pipe.text_encoder
-    teacher_unet = teacher_pipe.unet
+    student_pipe = AnimateDiffPipeline.from_pretrained(args.pretrained_model_path,motion_adapter=student_adapter,torch_dtpe=weight_dtype)
+    student_pipe.load_lora_weights("wangfuyun/AnimateLCM", weight_name="AnimateLCM_sd15_t2v_lora.safetensors",adapter_name="lcm-lora")
+    student_pipe.set_adapters(["lcm-lora"], [0.8])
     student_unet = student_pipe.unet
+
+
     vae.requires_grad_(False)
     text_encoder.requires_grad_(False)
     teacher_unet.requires_grad_(False)
@@ -123,13 +153,22 @@ def main(args):
     student_unet.to(device, dtype=weight_dtype) # this cannot be ?
     # make scheduler
 
-    logger.info(f' (4.4) motion controller')
+    print(f' step 9. motion control')
     window_size = 16
     guidance_scale = args.guidance_scale
     inference_step = args.inference_step
     student_motion_controller = None
     teacher_motion_controller = None
     if args.motion_control:
+        teacher_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
+                                                                 frame_num=16,
+                                                                 full_attention=args.full_attention,
+                                                                 window_attention=False,
+                                                                 window_size=window_size,
+                                                                 total_frame_num=args.num_frames,
+                                                                 skip_layers=skip_layers,
+                                                                 is_teacher=True)  # 32
+        regiter_motion_attention_editor_diffusers(teacher_unet, teacher_motion_controller)
         student_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
                                                                  frame_num=16,
                                                                  full_attention=args.full_attention,
@@ -140,25 +179,13 @@ def main(args):
                                                                  is_teacher=False,)
         regiter_motion_attention_editor_diffusers(student_unet, student_motion_controller)
 
-        teacher_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
-                                                                 frame_num=16,
-                                                                 full_attention=args.full_attention,
-                                                                 window_attention=False,
-                                                                 window_size=window_size,
-                                                                 total_frame_num=args.num_frames,
-                                                                 skip_layers=skip_layers,
-                                                                 is_teacher=True)  # 32
-        regiter_motion_attention_editor_diffusers(teacher_unet, teacher_motion_controller)
-
-    print(f' step 8. Create EMA for the unet')
     if args.gradient_checkpointing:
          #gradient checkpointing reduce momoery consume 
         student_unet.enable_gradient_checkpointing()
 
     print(f' step 9. Scale lr')
     if args.scale_lr:
-        args.learning_rate = (
-                args.learning_rate * args.gradient_accumulation_steps * args.per_gpu_batch_size)
+        args.learning_rate = (args.learning_rate * args.gradient_accumulation_steps * args.per_gpu_batch_size)
 
     #################################################################################################################
     print(f' step 10. Initialize the optimizer')
@@ -205,7 +232,6 @@ def main(args):
     rec_txt1.close()
     rec_txt2.close()
 
-
     if args.gradient_checkpointing:
         student_unet.enable_gradient_checkpointing()
 
@@ -247,16 +273,20 @@ def main(args):
     print(f' step 15. prepare model with our `accelerator')
     student_unet.to(device, dtype= weight_dtype)
 
+    from dpo import aesthetic_loss_fn
+    aesthetic_loss_fn = aesthetic_loss_fn(grad_scale=0.1,
+                                          aesthetic_target=10,
+                                          torch_dtype=weight_dtype,
+                                          device=device)
+
+
     print(f' step 16. training num')
     # train_dataloader = 300, gradient_accumulation_steps = 1
     # num_update_steps_per_epoch = 300
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
-    # Afterwards we recalculate our number of training epochs
 
-    # max_train_steps = 100000
-    # num_update_steps_per_epoch = 300
     args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
     print(f'args.max_train_steps : {args.max_train_steps}')
     print(f'num_update_steps_per_epoch : {num_update_steps_per_epoch}')
@@ -275,11 +305,8 @@ def main(args):
     first_epoch = 0
     ##########################################################################################
     print(f' [inference condition] ')
-    prompt = "A video of a woman, having a selfie"
-    n_prompt = "bad quality, worse quality, low resolution"
-    num_frames = 16
     guidance_scale = 1.5
-    num_inference_steps = 6
+
     ##########################################################################################
     # Only show the progress bar once on each machine.
     scaler = torch.cuda.amp.GradScaler() if args.mixed_precision_training else None
@@ -288,83 +315,103 @@ def main(args):
     for epoch in range(first_epoch, args.num_train_epochs):
         teacher_unet.train()
         student_unet.train()
-        train_loss = 0.0
+        total_loss = 0
         for step, batch in enumerate(train_dataloader):
 
-            """
-            
-                print(f' [epoch {epoch}] saving model')
-                # [1] State Saving
-                trained_value = student_unet.state_dict()
-                save_state_dict= {}
-                for trained_key, trained_value in trained_value.items():
-                    if 'motion' in trained_key :
-                        save_state_dict[trained_key] = trained_value.to('cpu')
-                save_epoch = str(epoch).zfill(3)
-                torch.save(save_state_dict, os.path.join(output_dir, f"checkpoints/checkpoint_epoch_{save_epoch}.pt"))
-
-                # [2] Evaluation
+            if step == 0:
                 print(f' [epoch {epoch}] evaluation')
+                validation_prompts = [
+                    "A person dances outdoors, shifting from one leg extended and arms outstretched to an upright stance with arms at shoulder height. They then alternate between poses: one leg bent, the other extended, and arms in various positions."
+                    # "A video of a woman, having a selfie",
+                    # "portrait photo of a girl, photograph, highly detailed face, depth of field, moody light, golden hour, style by Dan Winters, Russell James, Steve McCurry, centered, extremely detailed, Nikon D850, award winning photography",
+                    # "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k",
+                    # "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k",
+                    # "A photo of beautiful mountain with realistic sunset and blue lake, highly detailed, masterpiece",
+                    # "Cute small corgi sitting in a movie theater eating popcorn, unreal engine.",
+                    # "A Pikachu with an angry expression and red eyes, with lightning around it, hyper realistic style.",
+                    # "A dog is reading a thick book.",
+                    # "Three cats having dinner at a table at new years eve, cinematic shot, 8k.",
+                    # "An astronaut riding a pig, highly realistic dslr photo, cinematic shot.",
+                    ]
                 with torch.no_grad():
-                    # model copy (detach)
-                    student_unet_config = student_unet.config
-                    eval_unet = UNetMotionModel.from_config(student_unet_config)
+                    eval_adapter = MotionAdapter.from_config(student_adapter_config)
+                    eval_adapter_state_dict = {}
+                    eval_dict = eval_adapter.state_dict()
+                    for key, value in eval_dict.items():
+                        if key in student_unet.state_dict().keys():
+                            eval_adapter_state_dict[key] = value
+                    eval_adapter.load_state_dict(eval_adapter_state_dict)
+                    evaluation_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",
+                                                                          motion_adapter=eval_adapter)
+                    eval_unet = evaluation_pipe.unet
                     eval_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
-                                                                             frame_num=16,
-                                                                             full_attention=args.full_attention,
-                                                                             window_attention=args.window_attention,
-                                                                             window_size=window_size,
-                                                                             total_frame_num=args.num_frames,
-                                                                             skip_layers=skip_layers,
-                                                                             is_teacher=False, )
+                                                                          frame_num=16,
+                                                                          full_attention=args.full_attention,
+                                                                          window_attention=args.window_attention,
+                                                                          window_size=window_size,
+                                                                          total_frame_num=args.num_frames,
+                                                                          skip_layers=skip_layers,
+                                                                          is_teacher=False, )
                     regiter_motion_attention_editor_diffusers(eval_unet, eval_motion_controller)
 
                     # load state dict
                     trained_value = student_unet.state_dict()
                     eval_unet.load_state_dict(trained_value)
-                    evaluation_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",
-                                                                          unet=eval_unet)
-                    evaluation_pipe.scheduler = noise_scheduler
+                    scheduler_basic_config = noise_scheduler.config
+                    # [3] scheduler
+                    evaluation_pipe.scheduler = LCMScheduler.from_config(scheduler_basic_config)
+                    # [4] lcm lora
                     evaluation_pipe.load_lora_weights("wangfuyun/AnimateLCM",
-                                                      weight_name="AnimateLCM_sd15_t2v_lora.safetensors",adapter_name="lcm-lora")
+                                                      weight_name="AnimateLCM_sd15_t2v_lora.safetensors",
+                                                      adapter_name="lcm-lora")
                     evaluation_pipe.set_adapters(["lcm-lora"], [0.8])
                     evaluation_pipe.enable_vae_slicing()
                     evaluation_pipe.to('cuda')
-                    output = evaluation_pipe(prompt=prompt,
-                                             negative_prompt=n_prompt,
-                                             num_frames=num_frames,
-                                             guidance_scale=guidance_scale,
-                                             num_inference_steps=num_inference_steps,
-                                             generator=torch.Generator("cpu").manual_seed(args.seed), )
-                    student_motion_controller.reset()
-                    frames = output.frames[0]
-                    export_to_gif(frames, os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}.gif'))
-                    export_to_video(frames, os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}.mp4'))
-                    text_dir = os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}.txt')
-                    with open(text_dir, 'w') as f:
-                        f.write(f'prompt : {prompt}\n')
-                        f.write(f'n_prompt : {n_prompt}\n')
-                        f.write(f'guidance_scale : {guidance_scale}\n')
-                        f.write(f'num_inference_steps : {num_inference_steps}\n')
-                        f.write(f'seed : {args.seed}\n')
-                    fps=10
-                    wandb.log({"video": wandb.Video(data_or_path=os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}.gif'),
-                                                    caption=f'epoch_{epoch}', fps=fps)})
 
+                    num_frames = args.num_frames
+                    num_inference_steps = args.inference_step
+                    n_prompt = "bad quality, worse quality, low resolution"
+                    for p, prompt in enumerate(validation_prompts):
+                        save_p = str(p).zfill(3)
+                        output = evaluation_pipe(prompt=prompt,
+                                                 negative_prompt=n_prompt,
+                                                 num_frames=num_frames,
+                                                 guidance_scale=guidance_scale,
+                                                 num_inference_steps=num_inference_steps,
+                                                 generator=torch.Generator("cpu").manual_seed(args.seed), )
+                        student_motion_controller.reset()
+                        frames = output.frames[0]
+                        export_to_gif(frames,
+                                      os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}_{save_p}.gif'))
+                        export_to_video(frames,
+                                        os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}_{save_p}.mp4'))
+                        text_dir = os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}_{save_p}.txt')
+                        with open(text_dir, 'w') as f:
+                            f.write(f'prompt : {prompt}\n')
+                            f.write(f'n_prompt : {n_prompt}\n')
+                            f.write(f'guidance_scale : {guidance_scale}\n')
+                            f.write(f'num_inference_steps : {num_inference_steps}\n')
+                            f.write(f'seed : {args.seed}\n')
+                        fps = 10
+                        wandb.log({"video": wandb.Video(
+                            data_or_path=os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}_{save_p}.gif'),
+                            caption=f'epoch_{str(epoch).zfill(3)}_{save_p}', fps=fps)})
+
+                    print(f' [epoch {epoch}] saving model')
+                    # [1] State Saving
+                    trained_value = student_unet.state_dict()
+                    save_state_dict = {}
+                    for trained_key, trained_value in trained_value.items():
+                        if 'motion' in trained_key:
+                            save_state_dict[trained_key] = trained_value.to('cpu')
+                    save_epoch = str(epoch).zfill(3)
+                    torch.save(save_state_dict,
+                               os.path.join(output_dir, f"checkpoints/checkpoint_epoch_{save_epoch}.pt"))
                     del evaluation_pipe, eval_unet
+                    import gc
+                    gc.collect()
+                    torch.cuda.empty_cache()
 
-            
-            if epoch != 0 :
-                before_epoch = epoch - 1
-                before_state_dict = torch.load(os.path.join(output_dir, f"checkpoints/checkpoint_epoch{before_epoch}.pt"), map_location="cpu")
-                present_state_dict = torch.load(os.path.join(output_dir, f"checkpoints/checkpoint_epoch{epoch}.pt"), map_location="cpu")
-                for key, value in present_state_dict.items():
-                    present_state = present_state_dict[key]
-                    before_state = before_state_dict[key]
-                    if torch.equal(present_state, before_state):
-                        print(f'epoch {epoch} {key} is equal')
-            
-            """
             # ------------------------------------------------------------------------------------------------------------
             # [1]
             pixel_values = batch["pixel_values"]
@@ -379,10 +426,7 @@ def main(args):
             noise = torch.randn_like(latents).to(device, dtype=weight_dtype)
             bsz = latents.shape[0]
             # ------------------------------------------------------------------------------------------------------- #
-            # Change Here !
-            # 0, ..., 19
-
-            basic_timepool = noise_scheduler.config.num_train_timesteps
+            # [2]
             timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
             timesteps = timesteps.long() # torch
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
@@ -401,40 +445,16 @@ def main(args):
 
             # Predict the noise residual and compute loss
             # Mixed-precision training
-
             with torch.no_grad():
                 teacher_model_pred = teacher_unet(noisy_latents, timesteps, encoder_hidden_states).sample
                 if args.motion_control:
                     t_hdict = teacher_motion_controller.layerwise_hidden_dict  #
                     teacher_motion_controller.reset()
                     teacher_motion_controller.layerwise_hidden_dict = {}
-            distill_target = teacher_model_pred
+
             ########################################################################################################
             # Here Problem (student, problem)
             student_model_pred = student_unet(noisy_latents, timesteps, encoder_hidden_states).sample
-            #x0_predict = lcm_scheduler.step(student_model_pred, timesteps, latents).denoised
-
-            sample = noisy_latents
-            model_output = student_model_pred
-            # 1. get previous step value
-
-            # 2. compute alphas, betas
-            alpha_prod_t = noise_scheduler.alphas_cumprod[timesteps]
-            beta_prod_t = 1 - alpha_prod_t
-            # 3. Get scalings for boundary conditions
-            c_skip, c_out = noise_scheduler.get_scalings_for_boundary_condition_discrete(timesteps)
-            # 4. Different Parameterization:
-
-            parameterization = noise_scheduler.config.prediction_type
-            if parameterization == "epsilon":  # noise-prediction
-                pred_x0 = (sample - beta_prod_t.sqrt() * model_output) / alpha_prod_t.sqrt()
-            elif parameterization == "sample":  # x-prediction
-                pred_x0 = model_output
-            elif parameterization == "v_prediction":  # v-prediction
-                pred_x0 = alpha_prod_t.sqrt() * sample - beta_prod_t.sqrt() * model_output
-
-            #video_predict =
-            ########################################################################################################
             if args.motion_control:
                 s_hdict = student_motion_controller.layerwise_hidden_dict
                 student_motion_controller.layerwise_hidden_dict = {}
@@ -446,16 +466,42 @@ def main(args):
                         loss_feature += F.mse_loss(s_h_.float(), t_h_.float(), reduction="mean")
                 student_motion_controller.reset()
                 teacher_motion_controller.reset()
+
+            ########################################################################################################
+            # [3] aesthetic
+            if args.aesthetic_score:
+                pred_x_0_stu = get_predicted_original_sample(student_model_pred,
+                                                             timesteps, noisy_latents,
+                                                             noise_scheduler.config.prediction_type,
+                                                             alpha_schedule,sigma_schedule,)
+                vae_scale_factor = 2 ** (len(vae.config.block_out_channels) - 1)
+                with torch.no_grad() :
+                    first_frame = pred_x_0_stu[:,:, 0, :, :]
+                    if first_frame.ndim == 4:
+                        first_frame = first_frame.unsqueeze(2)
+                    video_processor = VideoProcessor(do_resize=False, vae_scale_factor=vae_scale_factor)
+                    video_tensor = decode_latents(vae, first_frame)
+                    output_type = 'pil'
+                    video = video_processor.postprocess_video(video=video_tensor, output_type=output_type)[0]
+                    video_tensor = load_img(video).unsqueeze(0)
+                    frames = video_tensor
+                    if args.do_aesthetic_loss :
+                        aesthetic_loss, aesthetic_rewards = aesthetic_loss_fn(frames.to(device = device, dtype = weight_dtype))  # video_frames_ in range [-1, 1]
+                        loss_dict["aesthetic_loss"] = aesthetic_loss
+                        loss_unet_total += aesthetic_loss
+                        wandb.log({"aesthetic_loss": aesthetic_loss.item()}, step=global_step)
+                total_loss += args.aesthetic_score_weight * aesthetic_loss
+                
             #########################################################################################################
-            # [1] task loss
+            # [1] Teacher Distillation
             loss_vlb = F.mse_loss(student_model_pred.float(), target.float(), reduction="mean")
             loss_distill = F.mse_loss(student_model_pred.float(), teacher_model_pred.float(), reduction="mean")
-            loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill
+            total_loss += args.vlb_weight * loss_vlb + args.distill_weight * loss_distill
             if args.motion_control:
-                loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill + args.loss_feature_weight * loss_feature
+                total_loss += args.loss_feature_weight * loss_feature
+
             optimizer.zero_grad()
             loss.backward()
-
             if args.mixed_precision_training:
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -466,7 +512,6 @@ def main(args):
                 torch.nn.utils.clip_grad_norm_(student_unet.parameters(), args.max_grad_norm)
                 optimizer.step()
 
-            
             for name, param in student_unet.named_parameters():
                 if param.requires_grad:
                     if name not in unet_dict:

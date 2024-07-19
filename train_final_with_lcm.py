@@ -44,6 +44,7 @@ from utils.diffusion_misc import *
 
 #
 def main(args):
+
     GPUtil.showUtilization()
     check_min_version("0.10.0.dev0")
     logger = logging.getLogger(__name__)

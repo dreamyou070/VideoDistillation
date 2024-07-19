@@ -12,6 +12,7 @@ from attn.masactrl import MutualSelfAttentionControl, MutualMotionAttentionContr
 import logging
 from datetime import datetime
 import wandb
+
 def main(args) :
 
     logger = logging.getLogger(__name__)
