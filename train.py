@@ -274,11 +274,14 @@ def main(args):
     print(f' step 15. prepare model with our `accelerator')
     student_unet.to(device, dtype= weight_dtype)
 
-    from dpo import aesthetic_loss_fn
+    from dpo import aesthetic_loss_fn, hps_loss_fn
     aesthetic_loss_fn = aesthetic_loss_fn(grad_scale=0.1,
                                           aesthetic_target=10,
                                           torch_dtype=weight_dtype,
                                           device=device)
+    if args.do_hps_loss :
+        hps_loss_fn = hps_loss_fn(weight_dtype, device,
+                                  hps_version=args.hps_version)
 
 
     print(f' step 16. training num')
@@ -489,7 +492,7 @@ def main(args):
             ########################################################################################################
 
             # [3] aesthetic
-            if args.do_aesthetic_loss :
+            if args.do_aesthetic_loss or args.do_hps_loss :
                 pred_x_0_stu = get_predicted_original_sample(student_model_pred,
                                                              timesteps, noisy_latents,
                                                              noise_scheduler.config.prediction_type,
@@ -512,9 +515,15 @@ def main(args):
                     video[0].save(save_dir)
                     video_tensor = load_img(video).unsqueeze(0)
                     frames = video_tensor
-                aesthetic_loss, aesthetic_rewards = aesthetic_loss_fn(frames.to(device = device, dtype = weight_dtype))  # video_frames_ in range [-1, 1]
-                wandb.log({"aesthetic_loss": aesthetic_loss.item()}, step=global_step)
-                total_loss += args.aesthetic_score_weight * aesthetic_loss
+                if args.do_aesthetic_loss :
+                    aesthetic_loss, aesthetic_rewards = aesthetic_loss_fn(frames.to(device = device, dtype = weight_dtype))  # video_frames_ in range [-1, 1]
+                    wandb.log({"aesthetic_loss": aesthetic_loss.item()}, step=global_step)
+                    total_loss += args.aesthetic_score_weight * aesthetic_loss
+                elif args.do_hps_loss :
+                    hps_loss, hps_rewards = hps_loss_fn(frames.to(device = device, dtype = weight_dtype), batch['text'])
+                    wandb.log({"hps_loss": hps_loss.item()}, step=global_step)
+                    total_loss += args.hps_score_weight * hps_loss
+
 
             optimizer.zero_grad()
             total_loss.backward()
@@ -633,6 +642,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--do_aesthetic_loss",action='store_true', )
     parser.add_argument("--aesthetic_score_weight",type=float, default=0.5)
+    parser.add_argument("--do_hps_loss", action='store_true')
+    parser.add_argument("--hps_score_weight", type=float, default=0.5)
+    parser.add_argument("--hps_version", type=str, default="v2.1", help="hps version: 'v2.0', 'v2.1'")
     args = parser.parse_args()
     name = Path(args.config).stem
     main(args)
