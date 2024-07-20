@@ -105,8 +105,8 @@ def main(args):
                                                     beta_schedule=args.beta_schedule,)
 
     print(f' step 5. ODE Solver (erasing noise)')
-    alpha_schedule = torch.sqrt(noise_scheduler.alphas_cumprod)
-    sigma_schedule = torch.sqrt(1 - noise_scheduler.alphas_cumprod)
+    alpha_schedule = torch.sqrt(noise_scheduler.alphas_cumprod).to(device, dtype=weight_dtype)
+    sigma_schedule = torch.sqrt(1 - noise_scheduler.alphas_cumprod).to(device, dtype=weight_dtype)
     """
     solver = DDIMSolver(noise_scheduler.alphas_cumprod.numpy(),
                         timesteps=noise_scheduler.config.num_train_timesteps,
@@ -487,28 +487,35 @@ def main(args):
             if args.motion_control:
                 total_loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill + args.loss_feature_weight * loss_feature
             ########################################################################################################
-            """
+
             # [3] aesthetic
             if args.do_aesthetic_loss :
                 pred_x_0_stu = get_predicted_original_sample(student_model_pred,
                                                              timesteps, noisy_latents,
                                                              noise_scheduler.config.prediction_type,
-                                                             alpha_schedule,sigma_schedule,)
+                                                             alpha_schedule,
+                                                             sigma_schedule,)
                 vae_scale_factor = 2 ** (len(vae.config.block_out_channels) - 1)
+                total_frame = pred_x_0_stu.shape[2]
+                random_frame_idx = random.randint(0, total_frame - 1)
                 with torch.no_grad() :
-                    first_frame = pred_x_0_stu[:,:, 0, :, :]
-                    if first_frame.ndim == 4:
-                        first_frame = first_frame.unsqueeze(2)
+                    frame = pred_x_0_stu[:,:, random_frame_idx, :, :]
+                    if frame.ndim == 4:
+                        frame = frame.unsqueeze(2)
                     video_processor = VideoProcessor(do_resize=False, vae_scale_factor=vae_scale_factor)
-                    video_tensor = decode_latents(vae, first_frame)
+                    video_tensor = decode_latents(vae, frame)
                     output_type = 'pil'
                     video = video_processor.postprocess_video(video=video_tensor, output_type=output_type)[0]
+                    # check video
+                    # saving
+                    save_dir = os.path.join(output_dir, f"sanity_check/aesthetic_{str(global_step).zfill(3)}.png")
+                    video[0].save(save_dir)
                     video_tensor = load_img(video).unsqueeze(0)
                     frames = video_tensor
                 aesthetic_loss, aesthetic_rewards = aesthetic_loss_fn(frames.to(device = device, dtype = weight_dtype))  # video_frames_ in range [-1, 1]
                 wandb.log({"aesthetic_loss": aesthetic_loss.item()}, step=global_step)
                 total_loss += args.aesthetic_score_weight * aesthetic_loss
-            """
+
             optimizer.zero_grad()
             total_loss.backward()
             if args.mixed_precision_training:
@@ -625,6 +632,7 @@ if __name__ == "__main__":
         help="The schedule to use for the beta values.",
     )
     parser.add_argument("--do_aesthetic_loss",action='store_true', )
+    parser.add_argument("--aesthetic_score_weight",type=float, default=0.5)
     args = parser.parse_args()
     name = Path(args.config).stem
     main(args)

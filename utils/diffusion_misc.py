@@ -61,9 +61,7 @@ def scalings_for_boundary_conditions(timestep, sigma_data=0.5, timestep_scaling=
 
 
 # Compare LCMScheduler.step, Step 4
-def get_predicted_original_sample(
-    model_output, timesteps, sample, prediction_type, alphas, sigmas
-):
+def get_predicted_original_sample(model_output, timesteps, sample, prediction_type, alphas, sigmas):
     alphas = extract_into_tensor(alphas, timesteps, sample.shape)
     sigmas = extract_into_tensor(sigmas, timesteps, sample.shape)
 
@@ -77,10 +75,6 @@ def get_predicted_original_sample(
         pred_x_0 = model_output
     elif prediction_type == "v_prediction":
         pred_x_0 = alphas * sample - sigmas * model_output
-        # alphas * sample = pred_x_0  - sigmas * model_output
-        # sample = (pred_x_0  - sigmas * model_output) / alphas
-        # if v_prediction, sample * alphas + model_ouput * sigma = x_0
-        # sample + velocity = x_0
     else:
         raise ValueError(
             f"Prediction type {prediction_type} is not supported; currently, `epsilon`, `sample`, and `v_prediction`"
