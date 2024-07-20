@@ -275,12 +275,11 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
             attn_weight += attn_bias
             # attention map
             attn_weight = torch.softmax(attn_weight, dim=-1) # [pixel_num, head, frame_num, frame_num]
+
+
             # 8192 = 2 * 4096 = 2 * (64 * 64)
             if editor.do_attention_map_check :
-                if editor.guidance_scale > 1 :
-                    uncon_attn_weight, attn_weight = attn_weight.chunk(2)
-                attn_weight = attn_weight.mean(dim=(0,1))
-                #editor.save_attention_map(attn_weight, full_name)
+                editor.save_attention_map(attn_weight, full_name)
 
 
 
@@ -442,8 +441,8 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
                 # [2] BasicTransformerBlock
                 subnet.forward = motion_forward_basic(subnet, final_name)
 
-            #if subnet.__class__.__name__ == 'Attention' and 'motion' in final_name.lower():  # spatial Transformer layer
-            #    subnet.forward = motion_forward(subnet, final_name)
+            if subnet.__class__.__name__ == 'Attention' and 'motion' in final_name.lower():  # spatial Transformer layer
+                subnet.forward = motion_forward(subnet, final_name)
                 # [3] pos embed
                 #original_pos_embed = subnet.pos_embed
                 #original_pe = original_pos_embed.pe

@@ -224,8 +224,8 @@ class MutualMotionAttentionControl(AttentionBase):
 
     def save_attention_map(self, attn_map, layer_name):
         if layer_name not in self.attnmap_dict:
-            self.attnmap_dict[layer_name] = {}
-        self.attnmap_dict[layer_name][f'time_{self.timestep}'] = attn_map
+            self.attnmap_dict[layer_name] = []
+        self.attnmap_dict[layer_name].append(attn_map)
 
     def set_timestep(self, timestep):
         self.timestep = timestep

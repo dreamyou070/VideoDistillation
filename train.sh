@@ -9,10 +9,10 @@ CUDA_VISIBLE_DEVICES=1 python ../VideoDistillation/train.py \
  --output_dir 'experiment' \
  --teacher_motion_model_dir "wangfuyun/AnimateLCM" \
  --pretrained_model_path "emilianJR/epiCRealism" \
- --sub_folder_name 'hps_test' \
+ --sub_folder_name 'do_attention_map_check' \
  --max_train_steps 300000 \
  --config configs/training/v1/training.yaml \
- --sample_n_frames 8 \
+ --sample_n_frames 6 \
  --datavideo_size 512 \
  --inference_step 6 \
  --num_frames 16 \
@@ -23,6 +23,6 @@ CUDA_VISIBLE_DEVICES=1 python ../VideoDistillation/train.py \
  --video_folder "../MyData/video/TikTok/TikTok_Video" \
  --do_aesthetic_loss --aesthetic_score_weight 1.0 \
  --do_hps_loss --hps_score_weight 1.0 \
+ --do_attention_map_check --attn_map_weight 1.0 \
  --distill_weight 1.0 --vlb_weight 0.0 --loss_feature_weight 1.0 \
  --adam_weight_decay 0.01 --learning_rate 0.0001
-

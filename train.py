@@ -168,7 +168,8 @@ def main(args):
                                                                  window_size=window_size,
                                                                  total_frame_num=args.num_frames,
                                                                  skip_layers=skip_layers,
-                                                                 is_teacher=True)  # 32
+                                                                 is_teacher=True,
+                                                                 do_attention_map_check = args.do_attention_map_check)  # 32
         regiter_motion_attention_editor_diffusers(teacher_unet, teacher_motion_controller)
         student_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
                                                                  frame_num=16,
@@ -177,7 +178,8 @@ def main(args):
                                                                  window_size=window_size,
                                                                  total_frame_num=args.num_frames,
                                                                  skip_layers=skip_layers,
-                                                                 is_teacher=False,)
+                                                                 is_teacher=False,
+                                                                 do_attention_map_check = args.do_attention_map_check)
         regiter_motion_attention_editor_diffusers(student_unet, student_motion_controller)
 
     if args.gradient_checkpointing:
@@ -463,24 +465,34 @@ def main(args):
                 teacher_model_pred = teacher_unet(noisy_latents, timesteps, encoder_hidden_states).sample
                 if args.motion_control:
                     t_hdict = teacher_motion_controller.layerwise_hidden_dict  #
+                    t_attn_dict = teacher_motion_controller.attnmap_dict
                     teacher_motion_controller.reset()
                     teacher_motion_controller.layerwise_hidden_dict = {}
+                    teacher_motion_controller.attnmap_dict = {}
 
             ########################################################################################################
             # Here Problem (student, problem)
             student_model_pred = student_unet(noisy_latents, timesteps, encoder_hidden_states).sample
             if args.motion_control:
                 s_hdict = student_motion_controller.layerwise_hidden_dict
+                s_attn_dict = student_motion_controller.attnmap_dict
+                student_motion_controller.reset()
                 student_motion_controller.layerwise_hidden_dict = {}
+                student_motion_controller.attnmap_dict = {}
                 loss_feature = 0
                 for layer_name in s_hdict.keys():
                     s_h = s_hdict[layer_name]
                     t_h = t_hdict[layer_name]
                     for s_h_, t_h_ in zip(s_h, t_h):
                         loss_feature += F.mse_loss(s_h_.float(), t_h_.float(), reduction="mean")
-                student_motion_controller.reset()
-                teacher_motion_controller.reset()
 
+                if args.do_attention_map_check:
+                    loss_attn_map = 0
+                    for layer_name in s_attn_dict.keys():
+                        s_attn = s_attn_dict[layer_name]
+                        t_attn = t_attn_dict[layer_name]
+                        for s_attn_, t_attn_ in zip(s_attn, t_attn):
+                            loss_attn_map += F.mse_loss(s_attn_.float(), t_attn_.float(), reduction="mean")
 
             #########################################################################################################
             # [1] Teacher Distillation
@@ -489,6 +501,8 @@ def main(args):
             total_loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill
             if args.motion_control:
                 total_loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill + args.loss_feature_weight * loss_feature
+                if args.do_attention_map_check:
+                    total_loss += args.attn_map_weight * loss_attn_map
             ########################################################################################################
 
             # [3] aesthetic
@@ -645,6 +659,9 @@ if __name__ == "__main__":
     parser.add_argument("--do_hps_loss", action='store_true')
     parser.add_argument("--hps_score_weight", type=float, default=0.5)
     parser.add_argument("--hps_version", type=str, default="v2.1", help="hps version: 'v2.0', 'v2.1'")
+    parser.add_argument("--do_attention_map_check", action='store_true')
+    parser.add_argument("--attn_map_weight", type=float, default=0.5)
+
     args = parser.parse_args()
     name = Path(args.config).stem
     main(args)
