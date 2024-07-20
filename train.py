@@ -18,6 +18,7 @@ from safetensors import safe_open
 from typing import Dict, Optional, Tuple
 from accelerate import Accelerator
 import torch
+from dpo import aesthetic_loss_fn, hps_loss_fn
 import torch.nn.functional as F
 from accelerate import DistributedDataParallelKwargs
 from diffusers.optimization import get_scheduler
@@ -275,14 +276,13 @@ def main(args):
 
     print(f' step 15. prepare model with our `accelerator')
     student_unet.to(device, dtype= weight_dtype)
-
-    from dpo import aesthetic_loss_fn, hps_loss_fn
-    aesthetic_loss_fn = aesthetic_loss_fn(grad_scale=0.1,
+    aesthetic_loss_fnc = aesthetic_loss_fn(grad_scale=0.1,
                                           aesthetic_target=10,
                                           torch_dtype=weight_dtype,
                                           device=device)
     if args.do_hps_loss :
-        hps_loss_fn = hps_loss_fn(weight_dtype, device,
+        hps_loss_fnc = hps_loss_fn(weight_dtype,
+                                  device,
                                   hps_version=args.hps_version)
 
 
@@ -530,11 +530,11 @@ def main(args):
                     video_tensor = load_img(video).unsqueeze(0)
                     frames = video_tensor
                 if args.do_aesthetic_loss :
-                    aesthetic_loss, aesthetic_rewards = aesthetic_loss_fn(frames.to(device = device, dtype = weight_dtype))  # video_frames_ in range [-1, 1]
+                    aesthetic_loss, aesthetic_rewards = aesthetic_loss_fnc(frames.to(device = device, dtype = weight_dtype))  # video_frames_ in range [-1, 1]
                     wandb.log({"aesthetic_loss": aesthetic_loss.item()}, step=global_step)
                     total_loss += args.aesthetic_score_weight * aesthetic_loss
                 elif args.do_hps_loss :
-                    hps_loss, hps_rewards = hps_loss_fn(frames.to(device = device, dtype = weight_dtype), batch['text'])
+                    hps_loss, hps_rewards = hps_loss_fnc(frames.to(device = device, dtype = weight_dtype), batch['text'])
                     wandb.log({"hps_loss": hps_loss.item()}, step=global_step)
                     total_loss += args.hps_score_weight * hps_loss
 
