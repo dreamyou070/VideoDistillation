@@ -95,12 +95,18 @@ def main(args):
     os.makedirs(f"{output_dir}/checkpoints", exist_ok=True)
     with open(os.path.join(output_dir, "args.json"), "w") as f:
         json.dump(vars(args), f, indent=4)
+    log_folder = os.path.join(output_dir, "logs")
+    os.makedirs(log_folder, exist_ok=True)
 
     print(f' step 3. wandb logging')
     wandb.init(project=args.project,
-               #entity='dreamyou070',
+               entity='dreamyou070',
                mode='online',
-               name=f'experiment_{args.sub_folder_name}')
+               name=f'experiment_{args.sub_folder_name}',
+               dir = log_folder)
+
+
+
     weight_dtype = torch.float32
 
     logger.info(f' step 4. noise scheduler')
