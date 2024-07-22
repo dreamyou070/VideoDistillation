@@ -38,7 +38,7 @@ from  diffusers.models import AutoencoderKL, ImageProjection, UNet2DConditionMod
 from diffusers import DDPMScheduler
 from utils.diffusion_misc import *
 #lcm_scheduler = LCMScheduler.from_config(teacher_pipe.scheduler.config)
-
+import t2v_metrics
 from diffusers.video_processor import VideoProcessor
 import numpy as np
 def decode_latents(vae, latents):
@@ -280,10 +280,14 @@ def main(args):
                                           aesthetic_target=10,
                                           torch_dtype=weight_dtype,
                                           device=device)
-    if args.do_hps_loss :
-        hps_loss_fnc = hps_loss_fn(weight_dtype,
-                                  device,
-                                  hps_version=args.hps_version)
+    if args.do_t2i_loss :
+        if args.do_hps_loss :
+            t2i_loss_fnc = hps_loss_fn(weight_dtype,
+                                       device,
+                                       hps_version=args.hps_version)
+        elif args.clip_flant5_score :
+            t2i_loss_fnc = t2v_metrics.VQAScore(model='clip-flant5-xxl') # our recommended scoring model
+
 
 
     print(f' step 16. training num')
@@ -345,12 +349,15 @@ def main(args):
                     ###########################################################################################################
                     # --------------- # --------------- # --------------- # --------------- # --------------- # ---------------
                     # [1] motion adapter
-                    eval_adapter = MotionAdapter.from_config(student_adapter_config)
-                    eval_adapter_state_dict = {}
-                    for key in student_unet.state_dict().keys():
-                        if 'motion' in key :
-                            eval_adapter_state_dict[key] = student_unet.state_dict()[key]
-                    eval_adapter.load_state_dict(eval_adapter_state_dict)
+                    if epoch != 0 :
+                        eval_adapter = MotionAdapter.from_config(student_adapter_config)
+                        eval_adapter_state_dict = {}
+                        for key in student_unet.state_dict().keys():
+                            if 'motion' in key :
+                                eval_adapter_state_dict[key] = student_unet.state_dict()[key]
+                        eval_adapter.load_state_dict(eval_adapter_state_dict)
+                    else :
+                        eval_adapter = teacher_adapter
                     # --------------- # --------------- # --------------- # --------------- # --------------- # ---------------
                     ############################################################################################################
 
@@ -369,14 +376,25 @@ def main(args):
 
                     # [5]
                     eval_unet = evaluation_pipe.unet
-                    eval_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
-                                                                          frame_num=16,
-                                                                          full_attention=args.full_attention,
-                                                                          window_attention=args.window_attention,
-                                                                          window_size=window_size,
-                                                                          total_frame_num=args.num_frames,
-                                                                          skip_layers=skip_layers,
-                                                                          is_teacher=False, )
+                    if step != 0 :
+                        eval_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
+                                                                              frame_num=16,
+                                                                              full_attention=args.full_attention,
+                                                                              window_attention=args.window_attention,
+                                                                              window_size=window_size,
+                                                                              total_frame_num=args.num_frames,
+                                                                              skip_layers=skip_layers,
+                                                                              is_teacher=False, )
+                    else :
+                        eval_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
+                                                                 frame_num=16,
+                                                                 full_attention=args.full_attention,
+                                                                 window_attention=False,
+                                                                 window_size=window_size,
+                                                                 total_frame_num=args.num_frames,
+                                                                 skip_layers=skip_layers,
+                                                                 is_teacher=True,
+                                                                 do_attention_map_check = args.do_attention_map_check)
                     regiter_motion_attention_editor_diffusers(eval_unet, eval_motion_controller)
                     evaluation_pipe.unet = eval_unet
 
@@ -506,7 +524,7 @@ def main(args):
             ########################################################################################################
 
             # [3] aesthetic
-            if args.do_aesthetic_loss or args.do_hps_loss :
+            if args.do_aesthetic_loss or args.do_t2i_loss :
                 pred_x_0_stu = get_predicted_original_sample(student_model_pred,
                                                              timesteps, noisy_latents,
                                                              noise_scheduler.config.prediction_type,
@@ -533,11 +551,16 @@ def main(args):
                     aesthetic_loss, aesthetic_rewards = aesthetic_loss_fnc(frames.to(device = device, dtype = weight_dtype))  # video_frames_ in range [-1, 1]
                     wandb.log({"aesthetic_loss": aesthetic_loss.item()}, step=global_step)
                     total_loss += args.aesthetic_score_weight * aesthetic_loss
-                elif args.do_hps_loss :
-                    hps_loss, hps_rewards = hps_loss_fnc(frames.to(device = device, dtype = weight_dtype), batch['text'])
-                    wandb.log({"hps_loss": hps_loss.item()}, step=global_step)
-                    total_loss += args.hps_score_weight * hps_loss
-
+                if args.do_t2i_loss :
+                    if args.do_hps_loss :
+                        hps_loss, hps_rewards = t2i_loss_fnc(frames.to(device = device, dtype = weight_dtype), batch['text'])
+                        wandb.log({"hps_loss": hps_loss.item()}, step=global_step)
+                        total_loss += args.t2i_score_weight * hps_loss
+                    elif args.clip_flant5_score :
+                        t2i_score = t2i_loss_fnc(frames.to(device = device, dtype = weight_dtype), batch['text'])
+                        t2i_loss = 1 - t2i_score
+                        wandb.log({"t2i_loss": t2i_loss.item()}, step=global_step)
+                        total_loss += args.t2i_score_weight * t2i_loss
 
             optimizer.zero_grad()
             total_loss.backward()
@@ -656,12 +679,13 @@ if __name__ == "__main__":
     )
     parser.add_argument("--do_aesthetic_loss",action='store_true', )
     parser.add_argument("--aesthetic_score_weight",type=float, default=0.5)
+    parser.add_argument("--do_t2i_loss", action='store_true')
     parser.add_argument("--do_hps_loss", action='store_true')
-    parser.add_argument("--hps_score_weight", type=float, default=0.5)
+    parser.add_argument("--clip_flant5_score", action='store_true')
+    parser.add_argument("--t2i_score_weight", type=float, default=0.5)
     parser.add_argument("--hps_version", type=str, default="v2.1", help="hps version: 'v2.0', 'v2.1'")
     parser.add_argument("--do_attention_map_check", action='store_true')
     parser.add_argument("--attn_map_weight", type=float, default=0.5)
-
     args = parser.parse_args()
     name = Path(args.config).stem
     main(args)
