@@ -11,35 +11,30 @@ import torch
 import numpy as np
 from genai_image_eval import show_performance_per_skill
 
-def config():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--root_dir", default="./datasets", type=str,
-                        help='Root directory for saving datasets.')
-    parser.add_argument("--cache_dir", default=t2v_metrics.constants.HF_CACHE_DIR, type=str) 
-    parser.add_argument("--device", default="cuda", type=str)
-    parser.add_argument("--batch_size", default=16, type=int)
-    parser.add_argument("--num_prompts", default=800, type=int, choices=[527, 800])
-    parser.add_argument("--model", default="clip-flant5-xxl", type=str)
-    parser.add_argument("--question", default=None, type=str)
-    parser.add_argument("--answer", default=None, type=str)
-    parser.add_argument("--result_dir", default="./genai_video_results", type=str)
-    parser.add_argument("--eval_mode", default="avg_frames", type=str)
-    return parser.parse_args()
 
+def main(args):
 
-def main():
-    args = config()
+    print(f' step 1. check root dir')
     if not os.path.exists(args.root_dir):
         os.makedirs(args.root_dir)
-    
+
+    print(f' step 2. make result dir')
     os.makedirs(args.result_dir, exist_ok=True)
     result_path = f"{args.result_dir}/{args.model}_{args.eval_mode}_{args.num_prompts}_prompts.pt"
-    dataset = GenAIBench_Video(root_dir=args.root_dir, eval_mode=args.eval_mode, num_prompts=args.num_prompts)
+
+    print(f' step 3. make dataset')
+    dataset = GenAIBench_Video(root_dir=args.root_dir,
+                               eval_mode=args.eval_mode,         # avg_frames
+                               num_prompts=args.num_prompts)     # 800
     if os.path.exists(result_path):
         print(f"Result file {result_path} already exists. Skipping.")
         scores = torch.load(result_path)
     else:
-        score_func = t2v_metrics.get_score_model(model=args.model, device=args.device, cache_dir=args.cache_dir)
+
+        print(f' step 4. get score function')
+        score_func = t2v_metrics.get_score_model(model=args.model,
+                                                 device=args.device,
+                                                 cache_dir=args.cache_dir)
 
         kwargs = {}
         if args.question is not None:
@@ -64,4 +59,17 @@ def main():
     
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root_dir", default="./datasets", type=str,
+                        help='Root directory for saving datasets.')
+    parser.add_argument("--cache_dir", default=t2v_metrics.constants.HF_CACHE_DIR, type=str)
+    parser.add_argument("--device", default="cuda", type=str)
+    parser.add_argument("--batch_size", default=16, type=int)
+    parser.add_argument("--num_prompts", default=800, type=int, choices=[527, 800])
+    parser.add_argument("--model", default="clip-flant5-xxl", type=str)
+    parser.add_argument("--question", default=None, type=str)
+    parser.add_argument("--answer", default=None, type=str)
+    parser.add_argument("--result_dir", default="./genai_video_results", type=str)
+    parser.add_argument("--eval_mode", default="avg_frames", type=str)
+    args = parser.parse_args()
+    main(args)
