@@ -97,14 +97,16 @@ def main(args):
         json.dump(vars(args), f, indent=4)
 
     print(f' step 3. wandb logging')
-    wandb.init(project=args.project, entity='dreamyou070', mode='online', name=f'experiment_{args.sub_folder_name}')
+    wandb.init(project=args.project,
+               #entity='dreamyou070',
+               mode='online',
+               name=f'experiment_{args.sub_folder_name}')
     weight_dtype = torch.float32
 
     logger.info(f' step 4. noise scheduler')
     noise_scheduler = DDPMScheduler.from_pretrained("runwayml/stable-diffusion-v1-5", subfolder="scheduler",
                                                     #revision=args.teacher_revision,
                                                     beta_schedule=args.beta_schedule,)
-
     print(f' step 5. ODE Solver (erasing noise)')
     alpha_schedule = torch.sqrt(noise_scheduler.alphas_cumprod).to(device, dtype=weight_dtype)
     sigma_schedule = torch.sqrt(1 - noise_scheduler.alphas_cumprod).to(device, dtype=weight_dtype)
