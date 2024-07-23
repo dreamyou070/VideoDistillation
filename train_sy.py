@@ -287,7 +287,6 @@ def main(args):
 
     print(f' step 15. prepare model with our `accelerator')
     student_unet.to(device, dtype=weight_dtype)
-    """
     aesthetic_loss_fnc = aesthetic_loss_fn(grad_scale=0.1,
                                            aesthetic_target=10,
                                            torch_dtype=weight_dtype,
@@ -300,7 +299,6 @@ def main(args):
                                        hps_version=args.hps_version)
         elif args.clip_flant5_score:
             t2i_loss_fnc = t2v_metrics.VQAScore(model='clip-flant5-xxl')  # our recommended scoring model
-    """
     print(f' step 16. training num')
     # train_dataloader = 300, gradient_accumulation_steps = 1
     # num_update_steps_per_epoch = 300
@@ -326,7 +324,7 @@ def main(args):
     first_epoch = 0
     ##########################################################################################
     print(f' [inference condition] ')
-    guidance_scale = 1.5
+    guidance_scale = args.guidance_scale
 
     ##########################################################################################
     # Only show the progress bar once on each machine.
@@ -367,7 +365,8 @@ def main(args):
                             if 'motion' in key:
                                 eval_adapter_state_dict[key] = student_unet.state_dict()[key]
                         eval_adapter.load_state_dict(eval_adapter_state_dict)
-                    else:
+                    else :
+                        # start with teacher adapter
                         eval_adapter = teacher_adapter
                     # --------------- # --------------- # --------------- # --------------- # --------------- # ---------------
                     ############################################################################################################
@@ -388,7 +387,8 @@ def main(args):
 
                     # [5]
                     eval_unet = evaluation_pipe.unet
-                    if step != 0:
+                    if epoch != 0:
+                        # student
                         eval_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
                                                                               frame_num=16,
                                                                               full_attention=args.full_attention,
@@ -398,6 +398,7 @@ def main(args):
                                                                               skip_layers=skip_layers,
                                                                               is_teacher=False, )
                     else:
+                        # teacher
                         eval_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
                                                                               frame_num=16,
                                                                               full_attention=args.full_attention,
@@ -534,7 +535,7 @@ def main(args):
                 if args.do_attention_map_check:
                     total_loss += args.attn_map_weight * loss_attn_map
             ########################################################################################################
-            """
+
             # [3] aesthetic
             if args.do_aesthetic_loss or args.do_t2i_loss:
                 pred_x_0_stu = get_predicted_original_sample(student_model_pred,
@@ -575,7 +576,6 @@ def main(args):
                         t2i_loss = 1 - t2i_score
                         wandb.log({"t2i_loss": t2i_loss.item()}, step=global_step)
                         total_loss += args.t2i_score_weight * t2i_loss
-            """
             optimizer.zero_grad()
             total_loss.backward()
             if args.mixed_precision_training:

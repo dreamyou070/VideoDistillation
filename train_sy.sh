@@ -18,7 +18,7 @@ CUDA_VISIBLE_DEVICES=0 python train_sy.py \
  --inference_step 6 \
  --num_frames 16 \
  --motion_control \
- --guidance_scale 2.0 \
+ --guidance_scale 1.5 \
  --skip_layers " ['up_0_0','up_1_0','up_2_0','up_3_0','up_0_2','up_1_2','up_2_2','up_3_2','mid',]" \
  --csv_path '../MyData/video/webvid_genvideo/webvid_genvideo.csv' \
  --video_folder "../MyData/video/webvid_genvideo/sample" \
