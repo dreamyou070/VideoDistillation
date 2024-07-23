@@ -886,7 +886,6 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
 
         # 3. down
         down_block_res_samples = (sample,)
-        print(f'before down block, len of down_block_res_samples (1) : {len(down_block_res_samples)}')
         for i, downsample_block in enumerate(self.down_blocks) :
             # four times of downsample block
             if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
@@ -906,8 +905,7 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
             # i = 2, len 7
             # i = 3, len 10
             down_block_res_samples += res_samples
-            print(f'before {i} down block, len of down_block_res_samples : {len(down_block_res_samples)}')
-        print(f'after down block, len of down_block_res_samples (12) : {len(down_block_res_samples)}')
+
         if down_block_additional_residuals is not None:
             new_down_block_res_samples = ()
             for down_block_res_sample, down_block_additional_residual in zip(down_block_res_samples, down_block_additional_residuals):
@@ -933,12 +931,10 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
                                         cross_attention_kwargs=cross_attention_kwargs,)
         if mid_block_additional_residual is not None:
             sample = sample + mid_block_additional_residual
-        print(f'after mid block, len of down_block_res_samples (10) : {len(down_block_res_samples)}')
         # 5. up
         for i, upsample_block in enumerate(self.up_blocks):
             is_final_block = i == len(self.up_blocks) - 1
             res_samples = down_block_res_samples[-len(upsample_block.resnets) :]
-            print(f' up {i} len of res_samples : {len(res_samples)}')
             down_block_res_samples = down_block_res_samples[: -len(upsample_block.resnets)]
 
             # if we have not reached the final block and need to forward the
