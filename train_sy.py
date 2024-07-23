@@ -287,6 +287,7 @@ def main(args):
 
     print(f' step 15. prepare model with our `accelerator')
     student_unet.to(device, dtype=weight_dtype)
+    """
     aesthetic_loss_fnc = aesthetic_loss_fn(grad_scale=0.1,
                                            aesthetic_target=10,
                                            torch_dtype=weight_dtype,
@@ -299,7 +300,7 @@ def main(args):
                                        hps_version=args.hps_version)
         elif args.clip_flant5_score:
             t2i_loss_fnc = t2v_metrics.VQAScore(model='clip-flant5-xxl')  # our recommended scoring model
-
+    """
     print(f' step 16. training num')
     # train_dataloader = 300, gradient_accumulation_steps = 1
     # num_update_steps_per_epoch = 300
@@ -533,6 +534,7 @@ def main(args):
                 if args.do_attention_map_check:
                     total_loss += args.attn_map_weight * loss_attn_map
             ########################################################################################################
+            """
             # [3] aesthetic
             if args.do_aesthetic_loss or args.do_t2i_loss:
                 pred_x_0_stu = get_predicted_original_sample(student_model_pred,
@@ -573,7 +575,7 @@ def main(args):
                         t2i_loss = 1 - t2i_score
                         wandb.log({"t2i_loss": t2i_loss.item()}, step=global_step)
                         total_loss += args.t2i_score_weight * t2i_loss
-
+            """
             optimizer.zero_grad()
             total_loss.backward()
             if args.mixed_precision_training:
@@ -585,20 +587,7 @@ def main(args):
             else:
                 torch.nn.utils.clip_grad_norm_(student_unet.parameters(), args.max_grad_norm)
                 optimizer.step()
-            """
-            for name, param in student_unet.named_parameters():
-                if param.requires_grad:
-                    if name not in unet_dict:
-                        unet_dict[name] = []
-                        unet_dict[name].append(param.detach().cpu())
-                    else:
-                        before = unet_dict[name][-1]
-                        present = param.detach().cpu()
-                        unet_dict[name] = []
-                        unet_dict[name].append(param.detach().cpu())
-                        equal_check = torch.equal(before, present)
-                        print(f'{name} equal check = {equal_check}')
-            """
+
 
             lr_scheduler.step()
             progress_bar.update(1)
