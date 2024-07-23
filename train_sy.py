@@ -533,7 +533,6 @@ def main(args):
                 if args.do_attention_map_check:
                     total_loss += args.attn_map_weight * loss_attn_map
             ########################################################################################################
-
             # [3] aesthetic
             if args.do_aesthetic_loss or args.do_t2i_loss:
                 pred_x_0_stu = get_predicted_original_sample(student_model_pred,
