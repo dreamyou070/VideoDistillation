@@ -333,13 +333,24 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
                 #print(f' editor.skip_layers = {editor.skip_layers}')
                 #print(f' {layer_name} : skip layer')
                 # student save this one (only at training state)
-                editor.save_hidden_states(hidden_states=input,
-                                          layer_name=layer_name)
+
                 output = hidden_states
                 return TransformerTemporalModelOutput(sample=output)
 
             else :
                 # original transformer
+                if 'down' not in layer_name.lower() and 'mid' not in layer_name.lower() :
+                    if not editor.is_teacher :
+                        """ Student """
+                        editor.save_hidden_states(hidden_states=input,
+                                                  layer_name=layer_name)
+                    else :
+                        """ Teacher """
+                        if not do_skip :
+                            editor.save_hidden_states(hidden_states=input,
+                                                      layer_name=layer_name)
+
+
                 batch_frames, channel, height, width = hidden_states.shape # batch_fames = frame
                 batch_size = batch_frames // num_frames
                 residual = hidden_states

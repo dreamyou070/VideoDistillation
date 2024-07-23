@@ -11,6 +11,9 @@
  #                    18: 'up_3_0', 19: 'up_3_1', 20: 'up_3_2',}
 # If I use down_0_0, can it be ... ?
 # #--motion_control \
+#--csv_path "/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-csv/0_300.csv" \
+ #--video_folder "/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-partial-video" \
+
 port_number=50331
 accelerate launch --config_file ../gpu_config/gpu_0_config \
  --main_process_port $port_number \
@@ -20,10 +23,8 @@ accelerate launch --config_file ../gpu_config/gpu_0_config \
  --sample_n_frames 8 \
  --inference_step 6 \
  --guidance_scale 2.0 --motion_control \
- --skip_layers "['up_0_0','up_1_0','up_2_0','up_3_0']" \
- --csv_path "/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-csv/0_300.csv" \
- --video_folder "/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-partial-video" \
+ --skip_layers "['up_0_0','up_1_0','up_2_0','up_3_0','up_0_2','up_1_2','up_2_2','up_3_2','mid']" \
  --use_wandb --cfg_random_null_text \
  --start_num 260 --end_num 300 \
- --output_dir './experiment/up_0_0_up_1_0_up_2_0_up_3_0_video_frames_16_distill_weight_1_featue_weight_1video_size_512_again' \
- --saved_epoch 6
+ --output_dir '../VideoDistillation_Script/experiment/1_1_experiment_mid_up_0_up_2_distill_from_teacher_distill_dataframe_8_origin_distill_loss_1_feature_loss_1' \
+ --saved_epoch 49

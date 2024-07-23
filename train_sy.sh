@@ -3,7 +3,7 @@ echo $CUDA_VISIBLE_DEVICES
 echo $SLURM_NODELIST
 echo $SLURM_NODEID
 # 'up_0_0','up_1_0','up_2_0','up_3_0', --do_aesthetic_loss  --do_attention_map_check
-CUDA_VISIBLE_DEVICES=0 python ../VideoDistillation/train.py \
+CUDA_VISIBLE_DEVICES=0 python train_sy.py \
  --use_wandb \
  --seed 42 \
  --output_dir 'experiment' \

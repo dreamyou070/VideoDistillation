@@ -43,7 +43,7 @@ from attn.masactrl_utils import (regiter_attention_editor_diffusers, regiter_mot
 from attn.masactrl import MutualSelfAttentionControl, MutualMotionAttentionControl
 from diffusers import LCMScheduler
 from diffusers.utils import export_to_gif, load_image
-from utils.matching import save_videos_grid
+#from utils.matching import save_videos_grid ###########
 import GPUtil
 import json
 from deepspeed.pipe import PipelineModule
@@ -89,29 +89,44 @@ def main(args):
 
 
     logger.info(f'\n step 5. set model')
-    logger.info(f' (5.1) adapter')
 
+    logger.info(f' (5.1) adapter')
     checkpoint_base_dir = os.path.join(args.output_dir, 'checkpoints')
+    ###########################################################################################################
     trained_checkpoint_dir = os.path.join(checkpoint_base_dir, f'checkpoint_epoch_{saved_epoch}.pt')
     trained_state_dict = torch.load(trained_checkpoint_dir, map_location="cpu")
-
-
-
     test_adapter = MotionAdapter.from_pretrained("wangfuyun/AnimateLCM", torch_dtpe=weight_dtype)
     test_adapter.load_state_dict(trained_state_dict)
+    logger.info(f' (5.1.2) teacher adapter')
+    teacher_adapter = MotionAdapter.from_pretrained("wangfuyun/AnimateLCM", torch_dtpe=weight_dtype)
+
     logger.info(f' (5.2) test_pipe')
     test_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",motion_adapter=test_adapter,torch_dtype=torch.float16)
+    teacher_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",motion_adapter=teacher_adapter,torch_dtype=torch.float16)
+
     logger.info(f' (5.3) noise scheduler')
     noise_scheduler = LCMScheduler.from_config(test_pipe.scheduler.config, beta_schedule="linear")
+
     test_pipe.scheduler = noise_scheduler
     test_pipe.to(accelerator.device, dtype=weight_dtype)
+
+    teacher_pipe.scheduler = noise_scheduler
+    teacher_pipe.to(accelerator.device, dtype=weight_dtype)
+
     logger.info(f' (5.4) lcm lora')
     test_pipe.load_lora_weights("wangfuyun/AnimateLCM",weight_name="AnimateLCM_sd15_t2v_lora.safetensors", adapter_name="lcm-lora")
     test_pipe.set_adapters(["lcm-lora"], [0.8])
+    teacher_pipe.load_lora_weights("wangfuyun/AnimateLCM",weight_name="AnimateLCM_sd15_t2v_lora.safetensors", adapter_name="lcm-lora")
+    teacher_pipe.set_adapters(["lcm-lora"], [0.8])
+
     test_pipe.enable_vae_slicing()
     test_pipe.to('cuda')
+    teacher_pipe.enable_vae_slicing()
+    teacher_pipe.to('cuda')
+
     logger.info(f' (5.5) test unet skipping')
     test_unet = test_pipe.unet
+    teacher_unet = teacher_pipe.unet
     window_size = 16
     guidance_scale = args.guidance_scale
     inference_step = args.inference_step
@@ -133,10 +148,10 @@ def main(args):
     os.makedirs(inference_folder, exist_ok=True)
 
     print(f' \n step 3. inference test')
-    prompt_dir = f'./configs/prompts/filtered_captions_val_{args.start_num}_{args.end_num}.txt'
-    with open(prompt_dir, 'r') as f:
-        prompts = f.readlines()
-
+    #prompt_dir = f'./configs/prompts/filtered_captions_val_{args.start_num}_{args.end_num}.txt'
+    #with open(prompt_dir, 'r') as f:
+    #    prompts = f.readlines()
+    prompts = ['a person is walking on the street']
     num_inference_step = args.inference_step
     n_prompt = "bad quality, worse quality, low resolution"
     seeds = [42]
@@ -169,7 +184,18 @@ def main(args):
             #
             # save_folder = os.path.join(base_folder, f'origin_elapse_time_{elapse_time}')
             os.makedirs(prompt_folder, exist_ok=True)
-            export_to_gif(frames, os.path.join(prompt_folder, f'prompt_{save_p}_seed_{seed}.gif'))
+            export_to_gif(frames, os.path.join(prompt_folder, f'prompt_{save_p}_seed_{seed}_test.gif'))
+
+            teacher_output = teacher_pipe(prompt=prompt,
+                          negative_prompt=n_prompt,
+                          num_frames=num_frames,
+                          guidance_scale=guidance_scale,
+                          num_inference_steps=num_inference_step,
+                          generator=torch.Generator("cpu").manual_seed(seed), )
+            #teacher_motion_controller.reset()
+            teacher_frames = teacher_output.frames[0]
+            export_to_gif(teacher_frames, os.path.join(prompt_folder, f'prompt_{save_p}_seed_{seed}_teacher.gif'))
+
 
 
 if __name__ == "__main__":

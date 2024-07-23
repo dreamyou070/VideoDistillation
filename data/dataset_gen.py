@@ -6,7 +6,6 @@ from decord import VideoReader
 import torch
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
-from animatediff.utils.util import zero_rank_print
 
 
 class DistillWebVid10M(Dataset):
@@ -19,7 +18,7 @@ class DistillWebVid10M(Dataset):
             sample_n_frames=16,
             is_image=False,
     ):
-        zero_rank_print(f"loading annotations from {csv_path} ...")
+        print(f"loading annotations from {csv_path} ...")
         with open(csv_path, 'r') as csvfile:
             self.dataset = list(csv.DictReader(csvfile))
         # ----------------------------------------------- Test ----------------------------------------------- #
@@ -27,7 +26,7 @@ class DistillWebVid10M(Dataset):
         # ----------------------------------------------- Test ----------------------------------------------- #
 
         self.length = len(self.dataset)
-        zero_rank_print(f"data scale: {self.length}")
+        print(f"data scale: {self.length}")
         self.video_folder = video_folder
         self.sample_stride = sample_stride
         self.sample_n_frames = sample_n_frames

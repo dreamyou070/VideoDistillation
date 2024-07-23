@@ -1,6 +1,6 @@
 import os
 
-base_file = 'filtered_captions_val.txt'
+base_file = '../configs/prompts/filtered_captions_val_6.txt'
 with open(base_file, 'r', encoding = 'utf-8') as f:
     lines = f.readlines()
 
