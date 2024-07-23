@@ -10,7 +10,7 @@ CUDA_VISIBLE_DEVICES=0 python train_fromimage.py \
  --output_dir 'experiment' \
  --teacher_motion_model_dir "wangfuyun/AnimateLCM" \
  --pretrained_model_path "emilianJR/epiCRealism" \
- --sub_folder_name '5_15_mid_up_02_origin_data_1000_distill_loss_1_feature_(changed)_1' \
+ --sub_folder_name '5_16_mid_up_02_origin_data_1000_distill_loss_1_feature_1_with_image_feature_loss' \
  --max_train_steps 300000 \
  --config configs/training/v1/training.yaml \
  --sample_n_frames 16 \
