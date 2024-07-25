@@ -236,6 +236,17 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
             if attn.spatial_norm is not None:
                 hidden_states = attn.spatial_norm(hidden_states, temb)
             input_ndim = hidden_states.ndim
+            # batch_frames, channel, height, width = hidden_states.shape # batch_fames = frame
+            # hidden_states = hidden_states[None, :].reshape(batch_size, num_frames, channel, height, width)
+            # hidden_states = [batch, frame, dim, height, width]
+            #                 hidden_states = hidden_states.permute(0, 2, 1, 3, 4) # [1,
+            #                 # hidden_states = [batch, dim, frame, height, width]
+            #                 hidden_states = self.norm(hidden_states) # 2, dim, frame, height, width
+            #                 height = hidden_states.shape[3]
+            #                 if editor.is_teacher :
+            #                     hidden_states = hidden_states.permute(0, 3, 4, 2, 1).reshape(batch_size * height * width,num_frames, channel)
+            #                     hidden_states = self.proj_in(hidden_states)
+
             if input_ndim == 4:
                 batch_size, channel, height, width = hidden_states.shape
                 hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
@@ -245,8 +256,8 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
                 attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
                 attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
 
-            if attn.group_norm is not None:
-                hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
+            #if attn.group_norm is not None:
+            #    hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
 
             query = attn.to_q(hidden_states)
             if encoder_hidden_states is None:
@@ -279,10 +290,9 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
 
             # 8192 = 2 * 4096 = 2 * (64 * 64)
             if editor.do_attention_map_check :
+                # only special case !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                #if 'up' in full_name.lower() and 'motion_modules_1' in full_name.lower() :
                 editor.save_attention_map(attn_weight, full_name)
-
-
-
 
             attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
             hidden_states = attn_weight @ value
@@ -303,6 +313,7 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
 
             hidden_states = hidden_states / attn.rescale_output_factor
             return hidden_states
+            #return TransformerTemporalModelOutput(sample=hidden_states)
 
 
         return forward
@@ -330,10 +341,7 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
             # up_blocks_3_motion_modules_0
 
             if do_skip and not editor.is_teacher :
-                #print(f' editor.skip_layers = {editor.skip_layers}')
-                #print(f' {layer_name} : skip layer')
-                # student save this one (only at training state)
-
+                # print(f'skip layer = {layer_name}')
                 output = hidden_states
                 return TransformerTemporalModelOutput(sample=output)
 
@@ -368,7 +376,7 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
                 hidden_states = self.norm(hidden_states) # 2, dim, frame, height, width
                 height = hidden_states.shape[3]
                 if editor.is_teacher :
-                    hidden_states = hidden_states.permute(0, 3, 4, 2, 1).reshape(batch_size * height * width,num_frames, channel)
+                    hidden_states = hidden_states.permute(0, 3, 4, 2, 1).reshape(batch_size * height * width, num_frames, channel)
                     hidden_states = self.proj_in(hidden_states)
                     # 2. Blocks
                     for block in self.transformer_blocks:
@@ -450,10 +458,26 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
             # start from "TransformerTemporalModel"
             if subnet.__class__.__name__ == 'TransformerTemporalModel' and 'motion' in final_name.lower():
                 # [2] BasicTransformerBlock
+                #if not editor.is_teacher :
+                #    if 'up' in final_name and 'motion_modules_0' in final_name:
+                        #subnet.forward = motion_forward_basic(subnet, final_name)
+                        #subnet.forward = motion_forward(subnet, final_name)
+                #        subnet = subnet.transformer_blocks[0].attn1 # Change Model
+                #    if 'up' in final_name and 'motion_modules_2' in final_name:
+                        #subnet.forward = motion_forward_basic(subnet, final_name)
+                        #subnet.forward = motion_forward(subnet, final_name)
+                #        subnet = subnet.transformer_blocks[0].attn1
+                #    if 'mid' in final_name :
+                        #subnet.forward = motion_forward_basic(subnet, final_name)
+                        #subnet.forward = motion_forward(subnet, final_name)
+                #        subnet = subnet.transformer_blocks[0].attn1
+                #    else :
+                #        subnet.forward = motion_forward_basic(subnet, final_name)
+                #else :
                 subnet.forward = motion_forward_basic(subnet, final_name)
 
             if subnet.__class__.__name__ == 'Attention' and 'motion' in final_name.lower():  # spatial Transformer layer
-                subnet.forward = motion_forward(subnet, final_name)
+               subnet.forward = motion_forward(subnet, final_name)
                 # [3] pos embed
                 #original_pos_embed = subnet.pos_embed
                 #original_pe = original_pos_embed.pe
