@@ -195,8 +195,8 @@ class BlipVQA(BlipBase):
             >>> model, vis_processors, txt_processors = load_model_and_preprocess("blip_vqa", "vqav2")
             >>> raw_image = Image.open("docs/data/merlion.png").convert("RGB")
             >>> question = "Which city is this photo taken?"
-            >>> image = vis_processors["eval"](raw_image).unsqueeze(0)
-            >>> question = txt_processors["eval"](question)
+            >>> image = vis_processors["eval.txt"](raw_image).unsqueeze(0)
+            >>> question = txt_processors["eval.txt"](question)
             >>> samples = {"image": image, "text_input": [question]}
             >>> answers = model.predict_answers(samples)
             >>> answers

@@ -344,6 +344,9 @@ def main(args):
     scaler = torch.cuda.amp.GradScaler() if args.mixed_precision_training else None
     progress_bar = tqdm(range(global_step, args.max_train_steps), desc="Steps")
 
+    eval_file_dir = r'configs/prompts/eval.txt'
+    with open(eval_file_dir, 'r') as f:
+        validation_prompts = f.readlines()
     for epoch in range(first_epoch, args.num_train_epochs):
         teacher_unet.train()
         student_unet.train()
@@ -352,21 +355,32 @@ def main(args):
 
             if step == 0:
                 print(f' [epoch {epoch}] evaluation')
-                validation_prompts = ["A person dances outdoors, shifting from one leg extended and arms outstretched to an upright stance with arms at shoulder height.",
-                                      "A video of a woman, having a selfie",
-                                      "A animation of a man walking on the street in a sunny day",
-                                      "a man is raising his hand and waving to the camera",
-                                      "A woman is raising her hand and waving to the camera",]
                 with torch.no_grad():
-
                     # [1] motion adapter
                     if epoch != 0:
+                        # do also teacher
                         eval_adapter = MotionAdapter.from_config(student_adapter_config)
                         eval_adapter_state_dict = {}
                         for key in student_unet.state_dict().keys():
                             if 'motion' in key:
                                 eval_adapter_state_dict[key] = student_unet.state_dict()[key]
                         eval_adapter.load_state_dict(eval_adapter_state_dict)
+                        evaluation_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",
+                                                                              motion_adapter=eval_adapter,
+                                                                              torch_dtype=torch.float16)
+                        # [3] scheduler
+                        evaluation_pipe.scheduler = LCMScheduler.from_config(evaluation_pipe.scheduler.config,
+                                                                             beta_schedule="linear")
+
+                        # [4] pipe
+                        evaluation_pipe.load_lora_weights("wangfuyun/AnimateLCM",
+                                                          weight_name="AnimateLCM_sd15_t2v_lora.safetensors",
+                                                          adapter_name="lcm-lora")
+                        evaluation_pipe.set_adapters(["lcm-lora"], [0.8])
+
+                        # [5]
+                        eval_unet = evaluation_pipe.unet
+
                     else :
                         # start with teacher adapter
                         eval_adapter = teacher_adapter

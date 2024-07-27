@@ -55,8 +55,12 @@ def main(args) :
     guidance_scales = [1.5]
     num_inference_steps = [1,2,3,4,5,6,7,8,9,10, 20,30,50]
     prompts = ["a man is walking on the street",]
-    n_prompt = "bad quality, worse quality, low resolution"
+             #  "a realistic image of a cat with a hat"]
     seeds = [0]
+    n_prompt = "bad quality, worse quality, low resolution"
+    """
+    
+    
     for p, prompt in enumerate(prompts):
         for guidance_scale in guidance_scales :
             for inference_scale in num_inference_steps :
@@ -73,6 +77,7 @@ def main(args) :
                         f.write(f'inference_scale : {inference_scale}\n')
                         f.write(f'seed : {seed}\n')
     # Video Pipeline
+    """
     print(f' \n step 4. make Video Pipeline')
     adapter = MotionAdapter.from_pretrained("wangfuyun/AnimateLCM", torch_dtype=torch.float16)
     pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",
@@ -88,6 +93,7 @@ def main(args) :
     pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
     pipe.enable_vae_slicing()
     pipe.to('cuda')
+    """
     print(f' \n step 3. inference test')
     for p, prompt in enumerate(prompts):
         for guidance_scale in guidance_scales:
@@ -110,6 +116,46 @@ def main(args) :
                         f.write(f'inference_scale : {inference_scale}\n')
                         f.write(f'frame_num : 16\n')
                         f.write(f'seed : {seed}\n')
+    """
+    print(f' \n step 5. redundancy removed Video Pipeline')
+    from utils.layer_dictionary import find_layer_name
+    #  \
+    skip_layers, skip_layers_dot = find_layer_name(args.skip_layers)
+    unet_3d = pipe.unet
+    guidance_scale = 1.5
+    student_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
+                                                             frame_num=16,
+                                                             full_attention=True,
+                                                             window_attention=16,
+                                                             window_size=16,
+                                                             total_frame_num=16,
+                                                             skip_layers=skip_layers,
+                                                             is_teacher=False,
+                                                             do_attention_map_check=False)
+    regiter_motion_attention_editor_diffusers(unet_3d, student_motion_controller)
+    pipe.unet = unet_3d
+    pipe.enable_vae_slicing()
+    pipe.to('cuda')
+    for p, prompt in enumerate(prompts):
+        for guidance_scale in guidance_scales:
+            for inference_scale in num_inference_steps:
+                for seed in seeds:
+                    output = pipe(prompt=prompt,
+                                  negative_prompt=n_prompt,
+                                  num_frames=16,
+                                  guidance_scale=guidance_scale,
+                                  num_inference_steps=inference_scale,
+                                  generator=torch.Generator("cpu").manual_seed(seed), ).frames[0]
+                    student_motion_controller.reset()
+                    video_dir = os.path.join(save_folder, f'inference_step_{inference_scale}_video_redundancy_erase_prompt_{p}.mp4')
+                    export_to_video(output, video_dir)
+                    text_dir = os.path.join(save_folder, f'inference_step_{inference_scale}_video_redundancy_erase_prompt_{p}.txt')
+                    with open(text_dir, 'w') as f:
+                        f.write(f'prompt : {prompt}\n')
+                        f.write(f'guidance_scale : {guidance_scale}\n')
+                        f.write(f'inference_scale : {inference_scale}\n')
+                        f.write(f'frame_num : 16\n')
+                        f.write(f'seed : {seed}\n')
 
 
 
@@ -120,5 +166,7 @@ if __name__ == "__main__" :
     parser.add_argument('--is_teacher', action='store_true')
     parser.add_argument('--start_num', type=int, default=100)
     parser.add_argument('--end_num', type=int, default=140)
+    from utils import arg_as_list
+    parser.add_argument('--skip_layers', type=arg_as_list)
     args = parser.parse_args()
     main(args)

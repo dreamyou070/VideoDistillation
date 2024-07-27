@@ -13,18 +13,14 @@
 # #--motion_control \
 #--csv_path "/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-csv/0_300.csv" \
  #--video_folder "/share0/dreamyou070/dreamyou070/MyData/video/webvid-10M/webvid-10M-partial-video" \
+# experiment_5_16_mid_up_02_origin_data_1000_distill_loss_1_feature_1_with_image_feature_loss
 
 port_number=50331
 accelerate launch --config_file ../gpu_config/gpu_0_config \
  --main_process_port $port_number \
  test_distill.py \
- --sub_folder_name 'experiment/no_skip_lr_1e2_distill_loss_test' \
- --wandb \
- --sample_n_frames 8 \
  --inference_step 6 \
- --guidance_scale 2.0 --motion_control \
+ --guidance_scale 1.5 --motion_control \
  --skip_layers "['up_0_0','up_1_0','up_2_0','up_3_0','up_0_2','up_1_2','up_2_2','up_3_2','mid']" \
- --use_wandb --cfg_random_null_text \
- --start_num 260 --end_num 300 \
- --output_dir '../VideoDistillation_Script/experiment/1_1_experiment_mid_up_0_up_2_distill_from_teacher_distill_dataframe_8_origin_distill_loss_1_feature_loss_1' \
- --saved_epoch 49
+ --output_dir '../VideoDistillation_Script/experiment/5_16_mid_up_02_origin_data_1000_distill_loss_1_feature_1_with_image_feature_loss' \
+ --saved_epoch 4

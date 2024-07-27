@@ -71,8 +71,8 @@ class AlbefFeatureExtractor(AlbefBase):
             >>> raw_image = Image.open("docs/data/merlion.png").convert("RGB")
             >>> caption = "a large fountain spewing water into the air"
             >>> model, vis_processors, txt_processors = load_model_and_preprocess("albef_feature_extractor", is_eval=True)
-            >>> image = vis_processors["eval"](raw_image).unsqueeze(0)
-            >>> text_input = txt_processors["eval"](caption)
+            >>> image = vis_processors["eval.txt"](raw_image).unsqueeze(0)
+            >>> text_input = txt_processors["eval.txt"](caption)
 
             >>> sample = {"image": image, "text_input": [text_input]}
 

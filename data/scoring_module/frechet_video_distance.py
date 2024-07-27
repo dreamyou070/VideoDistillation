@@ -89,7 +89,7 @@ def get_feature_detector(detector_url, device):
     key = (detector_url, device)
     if key not in _feature_detector_cache:
         with open_url(detector_url, verbose=True) as f:
-            _feature_detector_cache[key] = torch.jit.load(f).eval().to(device)
+            _feature_detector_cache[key] = torch.jit.load(f).eval.txt().to(device)
     return _feature_detector_cache[key]
 
 """

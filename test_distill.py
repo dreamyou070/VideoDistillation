@@ -43,10 +43,6 @@ from attn.masactrl_utils import (regiter_attention_editor_diffusers, regiter_mot
 from attn.masactrl import MutualSelfAttentionControl, MutualMotionAttentionControl
 from diffusers import LCMScheduler
 from diffusers.utils import export_to_gif, load_image
-#from utils.matching import save_videos_grid ###########
-import GPUtil
-import json
-from deepspeed.pipe import PipelineModule
 
 def main(args):
 
@@ -71,8 +67,9 @@ def main(args):
     torch.manual_seed(args.seed)
 
     logger.info(f'\n step 3. preparing accelerator')
-    output_dir = args.output_dir
-    os.makedirs(output_dir, exist_ok=True)
+
+    #base_folder = args.output_dir
+    #os.makedirs(output_dir, exist_ok=True)
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(kwargs_handlers=[ddp_kwargs],
                               log_with=log_with)
@@ -86,41 +83,38 @@ def main(args):
 
     logger.info(f'\n step 4. saving dir')
     saved_epoch = str(args.saved_epoch).zfill(3)
-
+    inference_folder = os.path.join(args.output_dir, 'inference')
+    os.makedirs(inference_folder, exist_ok=True)
+    inference_folder = os.path.join(inference_folder, f'epoch_{saved_epoch}')
+    os.makedirs(inference_folder, exist_ok=True)
 
     logger.info(f'\n step 5. set model')
-
     logger.info(f' (5.1) adapter')
     checkpoint_base_dir = os.path.join(args.output_dir, 'checkpoints')
-    ###########################################################################################################
     trained_checkpoint_dir = os.path.join(checkpoint_base_dir, f'checkpoint_epoch_{saved_epoch}.pt')
     trained_state_dict = torch.load(trained_checkpoint_dir, map_location="cpu")
     test_adapter = MotionAdapter.from_pretrained("wangfuyun/AnimateLCM", torch_dtpe=weight_dtype)
     test_adapter.load_state_dict(trained_state_dict)
     logger.info(f' (5.1.2) teacher adapter')
     teacher_adapter = MotionAdapter.from_pretrained("wangfuyun/AnimateLCM", torch_dtpe=weight_dtype)
-
-    logger.info(f' (5.2) test_pipe')
+    logger.info(f' (5.2.1) test_pipe with noise scheduler / lcm lora')
     test_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",motion_adapter=test_adapter,torch_dtype=torch.float16)
-    teacher_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",motion_adapter=teacher_adapter,torch_dtype=torch.float16)
-
-    logger.info(f' (5.3) noise scheduler')
     noise_scheduler = LCMScheduler.from_config(test_pipe.scheduler.config, beta_schedule="linear")
-
     test_pipe.scheduler = noise_scheduler
     test_pipe.to(accelerator.device, dtype=weight_dtype)
-
-    teacher_pipe.scheduler = noise_scheduler
-    teacher_pipe.to(accelerator.device, dtype=weight_dtype)
-
-    logger.info(f' (5.4) lcm lora')
-    test_pipe.load_lora_weights("wangfuyun/AnimateLCM",weight_name="AnimateLCM_sd15_t2v_lora.safetensors", adapter_name="lcm-lora")
+    test_pipe.load_lora_weights("wangfuyun/AnimateLCM", weight_name="AnimateLCM_sd15_t2v_lora.safetensors",
+                                adapter_name="lcm-lora")
     test_pipe.set_adapters(["lcm-lora"], [0.8])
-    teacher_pipe.load_lora_weights("wangfuyun/AnimateLCM",weight_name="AnimateLCM_sd15_t2v_lora.safetensors", adapter_name="lcm-lora")
-    teacher_pipe.set_adapters(["lcm-lora"], [0.8])
-
     test_pipe.enable_vae_slicing()
     test_pipe.to('cuda')
+
+    logger.info(f' (5.2.2) teacher_pipe with noise scheduler / lcm lora')
+    teacher_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism", motion_adapter=teacher_adapter,
+                                                       torch_dtype=torch.float16)
+    teacher_pipe.scheduler = noise_scheduler
+    teacher_pipe.to(accelerator.device, dtype=weight_dtype)
+    teacher_pipe.load_lora_weights("wangfuyun/AnimateLCM",weight_name="AnimateLCM_sd15_t2v_lora.safetensors", adapter_name="lcm-lora")
+    teacher_pipe.set_adapters(["lcm-lora"], [0.8])
     teacher_pipe.enable_vae_slicing()
     teacher_pipe.to('cuda')
 
@@ -130,8 +124,6 @@ def main(args):
     window_size = 16
     guidance_scale = args.guidance_scale
     inference_step = args.inference_step
-    student_motion_controller = None
-    teacher_motion_controller = None
     student_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
                                                              frame_num=16,
                                                              full_attention=args.full_attention,
@@ -144,35 +136,21 @@ def main(args):
     test_pipe.unet = test_unet
     logger.info(f'\n step 5. inference')
     num_frames = 16
-    inference_folder = os.path.join(output_dir, f"inferece_{saved_epoch}")
-    os.makedirs(inference_folder, exist_ok=True)
+
 
     print(f' \n step 3. inference test')
-    #prompt_dir = f'./configs/prompts/filtered_captions_val_{args.start_num}_{args.end_num}.txt'
-    #with open(prompt_dir, 'r') as f:
-    #    prompts = f.readlines()
-    prompts = ['a person is walking on the street']
+    prompts = ['a man is walking front on the street on a sunny day',
+               'a young woman in a yellow sweater uses VR glasses, sitting on the shore of pond on a background of dark wavers',
+               'female running at sunset. healthy fitness concept',
+               'back of woman in shorts going near pure creek in beautiful mountain',]
     num_inference_step = args.inference_step
     n_prompt = "bad quality, worse quality, low resolution"
-    seeds = [42]
+    seeds = [0,42,1056]
+    global_num = 0
     for p, prompt in enumerate(prompts):
 
-        save_p = str(p).zfill(3)
-        prompt_folder = os.path.join(inference_folder, f'prompt_idx_{save_p}')
-        print(f'prompt_folder = {prompt_folder}')
-        os.makedirs(prompt_folder, exist_ok=True)
-        # prompt setting
-        with open(os.path.join(prompt_folder, 'prompt.txt'), 'w') as f:
-            f.write(prompt)
-
         for seed in seeds:
-
-            base_folder = os.path.join(prompt_folder, f'guidance_{guidance_scale}_inference_{num_inference_step}')
-            os.makedirs(base_folder, exist_ok=True)
-
-            # seed setting
-            print(f' test pipe line')
-
+            global_num += 1
             output = test_pipe(prompt=prompt,
                           negative_prompt=n_prompt,
                           num_frames=num_frames,
@@ -181,27 +159,38 @@ def main(args):
                           generator=torch.Generator("cpu").manual_seed(seed), )
             student_motion_controller.reset()
             frames = output.frames[0]
-            #
-            # save_folder = os.path.join(base_folder, f'origin_elapse_time_{elapse_time}')
-            os.makedirs(prompt_folder, exist_ok=True)
-            export_to_gif(frames, os.path.join(prompt_folder, f'prompt_{save_p}_seed_{seed}_test.gif'))
+            # inference_folder
+            video_save_dir = os.path.join(inference_folder, f'student_sample_{global_num}.gif')
+            text_save_dir = os.path.join(inference_folder, f'student_sample_{global_num}.txt')
+            export_to_gif(frames, video_save_dir)
+            with open(text_save_dir, 'w') as f:
+                f.write(f'prompt: {prompt}\n')
+                f.write(f'negative prompt: {n_prompt}\n')
+                f.write(f'seed: {seed}\n')
+                f.write(f'guidance scale: {guidance_scale}\n')
+                f.write(f'inference step: {num_inference_step}\n')
 
             teacher_output = teacher_pipe(prompt=prompt,
-                          negative_prompt=n_prompt,
-                          num_frames=num_frames,
-                          guidance_scale=guidance_scale,
-                          num_inference_steps=num_inference_step,
-                          generator=torch.Generator("cpu").manual_seed(seed), )
-            #teacher_motion_controller.reset()
+                                      negative_prompt=n_prompt,
+                                      num_frames=num_frames,
+                                      guidance_scale=guidance_scale,
+                                      num_inference_steps=num_inference_step,
+                                      generator=torch.Generator("cpu").manual_seed(seed), )
             teacher_frames = teacher_output.frames[0]
-            export_to_gif(teacher_frames, os.path.join(prompt_folder, f'prompt_{save_p}_seed_{seed}_teacher.gif'))
-
+            video_save_dir_teacher = os.path.join(inference_folder, f'teacher_sample_{global_num}.gif')
+            export_to_gif(teacher_frames, video_save_dir_teacher)
+            text_save_dir_teacher = os.path.join(inference_folder, f'teacher_sample_{global_num}.txt')
+            with open(text_save_dir_teacher, 'w') as f:
+                f.write(f'prompt: {prompt}\n')
+                f.write(f'negative prompt: {n_prompt}\n')
+                f.write(f'seed: {seed}\n')
+                f.write(f'guidance scale: {guidance_scale}\n')
+                f.write(f'inference step: {num_inference_step}\n')
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--project', type=str, default='video_distill')
-    parser.add_argument('--sub_folder_name', type=str, default='result_sy')
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--mixed_precision", default='fp16')
@@ -212,7 +201,6 @@ if __name__ == "__main__":
     parser.add_argument('--num_frames', type=int, default=16)
     from utils import arg_as_list
     parser.add_argument('--skip_layers', type=arg_as_list)
-    parser.add_argument('--sample_n_frames', type=int, default=16)
     parser.add_argument('--vlb_weight', type=float, default=1.0)
     parser.add_argument('--distill_weight', type=float, default=1.0)
     parser.add_argument('--loss_feature_weight', type=float, default=1.0)

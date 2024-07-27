@@ -99,7 +99,7 @@ class Blip2Base(BaseModel):
 
 
 def disabled_train(self, mode=True):
-    """Overwrite model.train with this function to make sure train/eval mode
+    """Overwrite model.train with this function to make sure train/eval.txt mode
     does not change anymore."""
     return self
 

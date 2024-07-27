@@ -109,8 +109,8 @@ def main(args):
     wandb.init(project=args.project,
                entity='dreamyou070',
                mode='online',
-               name=f'experiment_{args.sub_folder_name}',
-               dir=log_folder)
+               name=f'experiment_{args.sub_folder_name}',)
+               #dir=log_folder)
     weight_dtype = torch.float32
 
     logger.info(f' step 4. noise scheduler')
@@ -238,15 +238,22 @@ def main(args):
                         break
         else:
             para.requires_grad = False
+
+    high_parameter_list = []
     for name, para in student_unet.named_parameters():
         if para.requires_grad:
-            parameters_list.append(para)
-    optimizer = optimizer_cls(
-        parameters_list,
-        lr=args.learning_rate,
-        betas=(args.adam_beta1, args.adam_beta2),
-        weight_decay=args.adam_weight_decay,
-        eps=args.adam_epsilon, )
+            if 'down' in name:
+                parameters_list.append(para)
+            else:
+                high_parameter_list.append(para)
+    param_groups = []
+    param_groups.append({'params': parameters_list, 'lr': args.learning_rate})
+    param_groups.append({'params': high_parameter_list, 'lr': args.learning_rate * args.lr_scale})
+    optimizer = optimizer_cls(param_groups,
+                              # lr=args.learning_rate,
+                              betas=(args.adam_beta1, args.adam_beta2),
+                              weight_decay=args.adam_weight_decay,
+                              eps=args.adam_epsilon, )
 
     print(f' step 11. recording parameters')
     rec_txt1 = open('recording_param_untraining.txt', 'w')
@@ -353,20 +360,10 @@ def main(args):
             if step == 0:
                 print(f' [epoch {epoch}] evaluation')
                 validation_prompts = [
-                    # "A person dances outdoors, shifting from one leg extended and arms outstretched to an upright stance with arms at shoulder height. They then alternate between poses: one leg bent, the other extended, and arms in various positions."
+                    "A person dances outdoors, shifting from one leg extended and arms outstretched to an upright stance with arms at shoulder height.",
                     "A video of a woman, having a selfie",
-                    # "portrait photo of a girl, photograph, highly detailed face, depth of field, moody light, golden hour, style by Dan Winters, Russell James, Steve McCurry, centered, extremely detailed, Nikon D850, award winning photography",
-                    # "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k",
-                    # "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k",
-                    # "A photo of beautiful mountain with realistic sunset and blue lake, highly detailed, masterpiece",
-                    # "Cute small corgi sitting in a movie theater eating popcorn, unreal engine.",
-                    # "A Pikachu with an angry expression and red eyes, with lightning around it, hyper realistic style.",
-                    # "A dog is reading a thick book.",
-                    # "Three cats having dinner at a table at new years eve, cinematic shot, 8k.",
-                    # "An astronaut riding a pig, highly realistic dslr photo, cinematic shot.",
-                ]
+                    "A animation of a man walking on the street in a sunny day"]
                 with torch.no_grad():
-
                     ###########################################################################################################
                     # --------------- # --------------- # --------------- # --------------- # --------------- # ---------------
                     # [1] motion adapter
@@ -551,8 +548,16 @@ def main(args):
             loss_vlb = F.mse_loss(student_model_pred.float(), target.float(), reduction="mean")
             loss_distill = F.mse_loss(student_model_pred.float(), teacher_model_pred.float(), reduction="mean")
 
-            loss_distill_image = F.mse_loss(student_image_model_pred.float(), image_target.float(), reduction="mean")
-            total_loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill + args.distill_weight_image * loss_distill_image
+            if args.image_distill_with_noise :
+                loss_distill_image = F.mse_loss(student_image_model_pred.float(), image_target.float(), reduction="mean")
+            else :
+                loss_distill_image = F.mse_loss(student_image_model_pred.float(),
+                                            image_teacher_model_pred.float() ,
+                                            reduction="mean")
+
+            total_loss = args.vlb_weight * loss_vlb + \
+                         args.distill_weight * loss_distill + \
+                         args.distill_weight_image * loss_distill_image
             if args.motion_control:
                 total_loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill + args.loss_feature_weight * loss_feature
                 if args.do_attention_map_check:
@@ -713,6 +718,8 @@ if __name__ == "__main__":
     parser.add_argument("--do_attention_map_check", action='store_true')
     parser.add_argument("--attn_map_weight", type=float, default=0.5)
     parser.add_argument("--distill_weight_image", type=float, default=1.0)
+    parser.add_argument("--lr_scale", type=float, default=1.0)
+    parser.add_argument("--image_distill_with_noise", action='store_true')
     args = parser.parse_args()
     name = Path(args.config).stem
     main(args)
