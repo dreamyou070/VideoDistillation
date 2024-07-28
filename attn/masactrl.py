@@ -85,8 +85,6 @@ class MutualSelfAttentionControl(AttentionBase):
         attnu, attnc = attn.chunk(2) # [head*[ref,cur], pix_num, pix_num]
 
         # what is sim ?
-        print(f' start query, qu = {qu.shape}')
-        print(f' num_heads = {num_heads}')
 
         out_u = self.attn_batch(qu,             # total q
                                 ku[:num_heads], # only reference k

@@ -46,6 +46,7 @@ def main(args) :
 
     print(' step 2. get raft weights')
     weights = Raft_Large_Weights.DEFAULT
+    print(f'raft weights = {weights}')
     transforms = weights.transforms()
     img1_batch, img2_batch = preprocess(img1_batch, img2_batch, transforms) # after processing, [2,2,720,1280]
     print(f"shape = {img1_batch.shape}, dtype = {img1_batch.dtype}")
