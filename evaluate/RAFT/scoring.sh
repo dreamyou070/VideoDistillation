@@ -1,0 +1,1 @@
+python raft.py --model='../../../EvalCrafter/RAFT/models/raft-things.pth' --path=demo-frames
