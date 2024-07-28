@@ -398,7 +398,6 @@ def main(args):
                                                       weight_name="AnimateLCM_sd15_t2v_lora.safetensors",
                                                       adapter_name="lcm-lora")
                     evaluation_pipe.set_adapters(["lcm-lora"], [0.8])
-
                     # [5]
                     eval_unet = evaluation_pipe.unet
                     if epoch != 0:

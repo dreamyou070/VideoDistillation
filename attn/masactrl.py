@@ -53,7 +53,6 @@ class MutualSelfAttentionControl(AttentionBase):
         self.frame_num = frame_num
 
 
-
     def attn_batch(self, q, k, v, sim, #attn,
                    is_cross, place_in_unet, num_heads, **kwargs):
         """        Performing attention for a batch of queries, keys, and values        """

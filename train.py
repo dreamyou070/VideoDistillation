@@ -63,15 +63,10 @@ def load_img(img):
 
     img_tensor = (img_tensor / 255. - 0.5) * 2
     return img_tensor
-<<<<<<< HEAD
-=======
 
 
 def main(args):
->>>>>>> refs/remotes/origin/main
 
-
-def main(args):
     GPUtil.showUtilization()
     check_min_version("0.10.0.dev0")
     logger = logging.getLogger(__name__)
@@ -111,17 +106,10 @@ def main(args):
     os.makedirs(log_folder, exist_ok=True)
 
     print(f' step 3. wandb logging')
-<<<<<<< HEAD
-    #wandb.init(project=args.project,
-    #           entity='dreamyou070',
-    #           mode='online',
-    #           name=f'experiment_{args.sub_folder_name}', )
-=======
     wandb.init(project=args.project,
                entity='dreamyou070',
                mode='online',
                name=f'experiment_{args.sub_folder_name}', )
->>>>>>> refs/remotes/origin/main
     # dir=log_folder)
     weight_dtype = torch.float32
 
@@ -135,8 +123,6 @@ def main(args):
 
     print(f' step 6. pretrained_teacher_model')
     teacher_adapter = MotionAdapter.from_pretrained(args.teacher_motion_model_dir, torch_dtpe=weight_dtype)
-<<<<<<< HEAD
-=======
     # pretrained student adapter
     if args.use_teacher_adapter_path :
         # checkpoint_base_dir = os.path.join(args.output_dir, 'checkpoints')
@@ -145,7 +131,6 @@ def main(args):
         teacher_adapter.load_state_dict(teacher_trained_state_dict)
 
 
->>>>>>> refs/remotes/origin/main
     teacher_pipe = AnimateDiffPipeline.from_pretrained(args.pretrained_model_path, motion_adapter=teacher_adapter,
                                                        torch_dtpe=weight_dtype)
     teacher_pipe.load_lora_weights("wangfuyun/AnimateLCM", weight_name="AnimateLCM_sd15_t2v_lora.safetensors",
@@ -169,9 +154,6 @@ def main(args):
         trained_checkpoint_dir = args.pretrained_student_adapter_path
         trained_state_dict = torch.load(trained_checkpoint_dir, map_location="cpu")
         student_adapter.load_state_dict(trained_state_dict)
-
-
-
 
     student_adapter_config = student_adapter.config
     pretrained_state_dict = student_adapter.state_dict()
@@ -208,6 +190,7 @@ def main(args):
     student_motion_controller = None
     teacher_motion_controller = None
     if args.motion_control:
+
         teacher_motion_controller = MutualMotionAttentionControl(guidance_scale=guidance_scale,
                                                                  frame_num=16,
                                                                  full_attention=args.full_attention,
@@ -370,11 +353,7 @@ def main(args):
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
     global_step = 0
     first_epoch = 0
-<<<<<<< HEAD
-    """
-=======
 
->>>>>>> refs/remotes/origin/main
     ##########################################################################################
     print(f' [inference condition] ')
     guidance_scale = args.guidance_scale
@@ -388,10 +367,6 @@ def main(args):
         validation_prompts = f.readlines()
 
     # Teacher Model Eval First
-<<<<<<< HEAD
-=======
-    """
->>>>>>> refs/remotes/origin/main
     eval_adapter = teacher_adapter
     evaluation_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism", motion_adapter=eval_adapter, torch_dtype=torch.float16)
     evaluation_pipe.scheduler = LCMScheduler.from_config(evaluation_pipe.scheduler.config, beta_schedule="linear")
@@ -417,30 +392,19 @@ def main(args):
             f.write(f'num_inference_steps : {args.inference_step}\n')
             f.write(f'seed : {args.seed}\n')
         fps = 10
-<<<<<<< HEAD
-        print(f'wandb teacher !')
-        #wandb.log({"video": wandb.Video(data_or_path=os.path.join(save_folder, f'teacher_sample_{save_p}.gif'),
-        #                                caption=f'[teacher] {prompt}', fps=fps)})
-=======
         wandb.log({"video": wandb.Video(data_or_path=os.path.join(save_folder, f'teacher_sample_{save_p}.gif'),
                                         caption=f'[teacher] {prompt}', fps=fps)})
->>>>>>> refs/remotes/origin/main
 
     del evaluation_pipe
     gc.collect()
     torch.cuda.empty_cache()
-    """
 
     # ------------------------------------------------------------------------------------------------------------ #
     for epoch in range(args.first_epoch, args.num_train_epochs):
         teacher_unet.train()
         student_unet.train()
         for step, batch in enumerate(train_dataloader):
-            """
-<<<<<<< HEAD
-=======
 
->>>>>>> refs/remotes/origin/main
             if step == 0:
                 print(f' [epoch {epoch}] evaluation')
                 with torch.no_grad():
@@ -506,13 +470,8 @@ def main(args):
                             f.write(f'num_inference_steps : {args.inference_step}\n')
                             f.write(f'seed : {args.seed}\n')
                         fps = 10
-<<<<<<< HEAD
-                        #wandb.log({"video": wandb.Video(data_or_path=os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}_{save_p}.gif'),
-                        #                                caption=f'[epoch {str(epoch).zfill(3)}] {prompt}', fps=fps)})
-=======
                         wandb.log({"video": wandb.Video(data_or_path=os.path.join(save_folder, f'sample_epoch_{str(epoch).zfill(3)}_{save_p}.gif'),
                                                         caption=f'[epoch {str(epoch).zfill(3)}] {prompt}', fps=fps)})
->>>>>>> refs/remotes/origin/main
 
                     print(f' [epoch {epoch}] saving model')
                     # [1] State Saving
@@ -527,7 +486,6 @@ def main(args):
                     del evaluation_pipe, eval_unet
                     gc.collect()
                     torch.cuda.empty_cache()
-            """
             # ------------------------------------------------------------------------------------------------------------
             # [1]
             pixel_values = batch["pixel_values"]
@@ -584,11 +542,7 @@ def main(args):
                     s_h = s_hdict[layer_name]
                     t_h = t_hdict[layer_name]
                     for s_h_, t_h_ in zip(s_h, t_h):
-<<<<<<< HEAD
-                        loss_feature += F.mse_loss(s_h_.float(), t_h_.float(), reduction="none").mean(dim=[1, 2, 3])
-=======
                         loss_feature += F.mse_loss(s_h_.float(), t_h_.float(), reduction="none").mean(dim=[1, 2, 3]) # frame wise loss
->>>>>>> refs/remotes/origin/main
                 loss_feature = loss_feature.mean()
 
                 if args.do_attention_map_check:
@@ -661,11 +615,7 @@ def main(args):
                         total_loss += args.t2i_score_weight * t2i_loss
             optimizer.zero_grad()
             total_loss.backward()
-<<<<<<< HEAD
-            """
-=======
 
->>>>>>> refs/remotes/origin/main
             if args.mixed_precision_training:
                 scaler.scale(total_loss).backward()
                 scaler.unscale_(optimizer)
@@ -678,18 +628,14 @@ def main(args):
 
             lr_scheduler.step()
             progress_bar.update(1)
-<<<<<<< HEAD
-            """
-=======
 
->>>>>>> refs/remotes/origin/main
             global_step += 1
-            #wandb.log({"train_loss": total_loss.item()}, step=global_step)
-            #wandb.log({"loss_vlb": loss_vlb.item()}, step=global_step)
-            #wandb.log({"loss_distill": loss_distill.item()}, step=global_step)
-            #if args.motion_control:
-            #    if type(loss_feature) == torch.Tensor:
-                    #wandb.log({"loss_feature": loss_feature.item()}, step=global_step)
+            wandb.log({"train_loss": total_loss.item()}, step=global_step)
+            wandb.log({"loss_vlb": loss_vlb.item()}, step=global_step)
+            wandb.log({"loss_distill": loss_distill.item()}, step=global_step)
+            if args.motion_control:
+                if type(loss_feature) == torch.Tensor:
+                    wandb.log({"loss_feature": loss_feature.item()}, step=global_step)
 
             if args.motion_control:
                 student_motion_controller.reset()
@@ -784,15 +730,9 @@ if __name__ == "__main__":
     parser.add_argument("--down_module_attention", action='store_true')
     parser.add_argument("--pretrained_student_adapter_path", type=str,
                         default='')
-<<<<<<< HEAD
-    parser.add_argument("--first_epoch", type=int, default=0)
-=======
     parser.add_argument("--use_teacher_adapter_path", type=str,
                         default='')
     parser.add_argument("--first_epoch", type=int, default=0)
-
-
->>>>>>> refs/remotes/origin/main
     args = parser.parse_args()
     name = Path(args.config).stem
     main(args)

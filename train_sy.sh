@@ -2,6 +2,7 @@
 echo $CUDA_VISIBLE_DEVICES
 echo $SLURM_NODELIST
 echo $SLURM_NODEID
+
 # --do_aesthetic_loss --do_attention_map_check
 # 'up_0_0','up_1_0','up_2_0','up_3_0', --do_aesthetic_loss  --do_attention_map_check
 # --do_attention_map_check   --down_module_attention (attention loss is not good, rather)

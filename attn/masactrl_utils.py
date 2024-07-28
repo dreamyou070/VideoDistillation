@@ -473,15 +473,7 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
                 for skip_layer in editor.skip_layers:
                     if skip_layer == layer_name.lower():
                         do_skip = True
-            # up_blocks_3_motion_modules_0
-            # up_blocks_3_motion_modules_0
-            # ---------------------------------------------------------------------------------- #
-            # make self.pe
-            frame_num, dim, h, w = hidden_states.shape
-            hidden_states = rearrange(hidden_states, 'f d h w -> f d (h w)')
-            print(f' adding positinal embedding')
-            hidden_states = self.pe + hidden_states # adding positional embedding
-            hidden_states = hidden_states.reshape(frame_num, dim, h, w)
+
 
             if do_skip and not editor.is_teacher :
 
@@ -595,28 +587,13 @@ def regiter_motion_attention_editor_diffusers(unet, editor: AttentionBase):
     def register_editor(net, count, place_in_unet, net_name):
         for name, subnet in net.named_children():
             final_name = f"{net_name}_{name}"
+
             if subnet.__class__.__name__ == 'TransformerTemporalModel' and 'motion' in final_name.lower():
                 subnet.forward = motion_forward_basic(subnet, final_name)
-                print(f'subnet : {subnet.inner_dim}')
-                subnet.add_positional_embeddings()
 
-            #if subnet.__class__.__name__ == 'BasicTransformerBlock' and 'motion' in final_name.lower():
-            #    subnet.forward = motion_forward_basictransformerblock(subnet, final_name)
-            #    original_pos_embed = subnet.pos_embed
-            #    original_pe = original_pos_embed.pe
-            #    _, max_seq_len, inner_dim = original_pe.shape
-            #    subnet.pos_embed = SinusoidalPositionalEmbedding_custom(inner_dim,
-            #                                                            max_seq_length=32,
-            #                                                            total_frame_num=editor.total_frame_num,
-            #                                                            window_size=editor.window_size)
-
-
-            #if subnet.__class__.__name__ == 'Attention' and 'motion' in final_name.lower():  # spatial Transformer layer
-            #       subnet.forward = motion_forward(subnet, final_name)
             elif hasattr(net, 'children'):
                 count = register_editor(subnet, count, place_in_unet, final_name)
         return count
-
     cross_att_count = 0
     for net_name, net in unet.named_children():
         if "down" in net_name:

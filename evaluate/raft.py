@@ -56,11 +56,9 @@ def main(args) :
     model = raft_large(weights=Raft_Large_Weights.DEFAULT, progress=False).to(device)
     model = model.eval()
 
-    list_of_flows = model(img1_batch.to(device), img2_batch.to(device))
-    print(f"type = {type(list_of_flows)}")
-    print(f"length = {len(list_of_flows)} = number of iterations of the model")
-
-    predicted_flows = list_of_flows[-1]
+    print(' step 3. raft model')
+    list_of_flows = model(img1_batch.to(device))#, img2_batch.to(device)) # list (12 times_
+    predicted_flows = list_of_flows[-1] # torch.Size([2, 2, 520, 960]) = (N, 2, H, W)
     print(f"dtype = {predicted_flows.dtype}")
     print(f"shape = {predicted_flows.shape} = (N, 2, H, W)")
     print(f"min = {predicted_flows.min()}, max = {predicted_flows.max()}")
