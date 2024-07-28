@@ -67,7 +67,7 @@ def load_model(name, model_type, is_eval=False, device="cpu", checkpoint=None):
     Args:
         name (str): name of the model.
         model_type (str): type of the model.
-        is_eval (bool): whether the model is in eval mode. Default: False.
+        is_eval (bool): whether the model is in eval.txt mode. Default: False.
         device (str): device to use. Default: "cpu".
         checkpoint (str): path or to checkpoint. Default: None.
             Note that expecting the checkpoint to have the same keys in state_dict as the model.
@@ -103,7 +103,7 @@ def load_preprocess(config):
         vis_processors (dict): preprocessors for visual inputs.
         txt_processors (dict): preprocessors for text inputs.
 
-        Key is "train" or "eval" for processors used in training and evaluation respectively.
+        Key is "train" or "eval.txt" for processors used in training and evaluation respectively.
     """
 
     def _build_proc_from_cfg(cfg):
@@ -121,23 +121,23 @@ def load_preprocess(config):
 
     if vis_proc_cfg is not None:
         vis_train_cfg = vis_proc_cfg.get("train")
-        vis_eval_cfg = vis_proc_cfg.get("eval")
+        vis_eval_cfg = vis_proc_cfg.get("eval.txt")
     else:
         vis_train_cfg = None
         vis_eval_cfg = None
 
     vis_processors["train"] = _build_proc_from_cfg(vis_train_cfg)
-    vis_processors["eval"] = _build_proc_from_cfg(vis_eval_cfg)
+    vis_processors["eval.txt"] = _build_proc_from_cfg(vis_eval_cfg)
 
     if txt_proc_cfg is not None:
         txt_train_cfg = txt_proc_cfg.get("train")
-        txt_eval_cfg = txt_proc_cfg.get("eval")
+        txt_eval_cfg = txt_proc_cfg.get("eval.txt")
     else:
         txt_train_cfg = None
         txt_eval_cfg = None
 
     txt_processors["train"] = _build_proc_from_cfg(txt_train_cfg)
-    txt_processors["eval"] = _build_proc_from_cfg(txt_eval_cfg)
+    txt_processors["eval.txt"] = _build_proc_from_cfg(txt_eval_cfg)
 
     return vis_processors, txt_processors
 
@@ -153,7 +153,7 @@ def load_model_and_preprocess(name, model_type, is_eval=False, device="cpu"):
     Args:
         name (str): name of the model.
         model_type (str): type of the model.
-        is_eval (bool): whether the model is in eval mode. Default: False.
+        is_eval (bool): whether the model is in eval.txt mode. Default: False.
         device (str): device to use. Default: "cpu".
 
     Returns:

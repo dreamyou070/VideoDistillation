@@ -123,11 +123,11 @@ scores = clip_flant5_score(images=images,
 
 Our [eval.py](eval.py) allows you to easily run 10 image/vision/3D alignment benchmarks (e.g., Winoground/TIFA160/SeeTrue/StanfordT23D/T2VScore):
 ```bash
-python eval.py --model clip-flant5-xxl # for VQAScore
-python eval.py --model openai:ViT-L-14 # for CLIPScore
+python eval.txt.py --model clip-flant5-xxl # for VQAScore
+python eval.txt.py --model openai:ViT-L-14 # for CLIPScore
 
 # You can optionally specify question/answer template, for example:
-python eval.py --model clip-flant5-xxl --question "Is the figure showing '{}'?" --answer "Yes"
+python eval.txt.py --model clip-flant5-xxl --question "Is the figure showing '{}'?" --answer "Yes"
 ```
 
 ### Reproducing GenAI-Bench paper results

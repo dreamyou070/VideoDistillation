@@ -310,7 +310,7 @@ class Blip2T5Instruct(Blip2Base):
 
         query_tokens = self.query_tokens.expand(bs, -1, -1)
         if self.qformer_text_input:
-            # remove ocr tokens in q_former (for eval textvqa)
+            # remove ocr tokens in q_former (for eval.txt textvqa)
             # qformer_prompt = prompt
             # qformer_prompt = ['Question: ' + qp.split(' Question: ')[1] for qp in qformer_prompt]
 

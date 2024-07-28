@@ -1,6 +1,6 @@
 import csv, os
 
-csv_folder = '/share0/dreamyou070/dreamyou070/MyData/video/webvid_genvideo/csv_folder'
+csv_folder = '/share0/dreamyou070/dreamyou070/MyData/video/webvid_genvimage/csv_folder'
 files = os.listdir(csv_folder)
 header = ['videoid','page_dir','name']
 datas = []
@@ -20,7 +20,7 @@ for file in files :
                 elem = [video_id, dir, prompt]
                 datas.append(elem)
 
-make_csv = '/share0/dreamyou070/dreamyou070/MyData/video/webvid_genvideo/webvid_genvideo.csv'
+make_csv = '/share0/dreamyou070/dreamyou070/MyData/video/webvid_genvimage/webvid_genvimage.csv'
 with open(make_csv, 'w', encoding='utf-8') as f:
     writer = csv.writer(f)
     writer.writerow(header)

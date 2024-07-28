@@ -139,7 +139,7 @@ class WeatherScorer(nn.Module):    # Reward model
             self.score_generator.requires_grad_(False)
             self.score_generator.eval()
             # self.clip.requires_grad_(False)
-            # self.clip.eval()
+            # self.clip.eval.txt()
         else:
             self.score_generator.requires_grad_(True)
         if dtype:

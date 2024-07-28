@@ -109,8 +109,8 @@ def main(args):
     wandb.init(project=args.project,
                entity='dreamyou070',
                mode='online',
-               name=f'experiment_{args.sub_folder_name}',
-               dir=log_folder)
+               name=f'experiment_{args.sub_folder_name}',)
+               # dir=log_folder)
     weight_dtype = torch.float32
 
     logger.info(f' step 4. noise scheduler')
@@ -226,15 +226,28 @@ def main(args):
                         break
         else:
             para.requires_grad = False
+    high_parameter_list = []
     for name, para in student_unet.named_parameters():
         if para.requires_grad:
-            parameters_list.append(para)
-    optimizer = optimizer_cls(
-        parameters_list,
-        lr=args.learning_rate,
-        betas=(args.adam_beta1, args.adam_beta2),
-        weight_decay=args.adam_weight_decay,
-        eps=args.adam_epsilon, )
+            if 'down' in name :
+                parameters_list.append(para)
+            else :
+                high_parameter_list.append(para)
+    param_groups = []
+    param_groups.append({'params': parameters_list, 'lr': args.learning_rate})
+    param_groups.append({'params': high_parameter_list, 'lr': args.learning_rate * args.lr_scale})
+    optimizer = optimizer_cls(param_groups,
+                              #lr=args.learning_rate,
+                               betas=(args.adam_beta1, args.adam_beta2),
+                               weight_decay=args.adam_weight_decay,
+                               eps=args.adam_epsilon, )
+    # layerwise learining rate
+    #optimizer = optimizer_cls(
+    #    parameters_list,
+    #    lr=args.learning_rate,
+    #    betas=(args.adam_beta1, args.adam_beta2),
+    #    weight_decay=args.adam_weight_decay,
+    #    eps=args.adam_epsilon, )
 
     print(f' step 11. recording parameters')
     rec_txt1 = open('recording_param_untraining.txt', 'w')
@@ -331,45 +344,46 @@ def main(args):
     scaler = torch.cuda.amp.GradScaler() if args.mixed_precision_training else None
     progress_bar = tqdm(range(global_step, args.max_train_steps), desc="Steps")
 
-    unet_dict = {}
+    eval_file_dir = r'configs/prompts/eval.txt'
+    with open(eval_file_dir, 'r') as f:
+        validation_prompts = f.readlines()
     for epoch in range(first_epoch, args.num_train_epochs):
         teacher_unet.train()
         student_unet.train()
-        total_loss = 0
+
         for step, batch in enumerate(train_dataloader):
 
             if step == 0:
                 print(f' [epoch {epoch}] evaluation')
-                validation_prompts = [
-                    # "A person dances outdoors, shifting from one leg extended and arms outstretched to an upright stance with arms at shoulder height. They then alternate between poses: one leg bent, the other extended, and arms in various positions."
-                    "A video of a woman, having a selfie",
-                    # "portrait photo of a girl, photograph, highly detailed face, depth of field, moody light, golden hour, style by Dan Winters, Russell James, Steve McCurry, centered, extremely detailed, Nikon D850, award winning photography",
-                    # "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k",
-                    # "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k",
-                    # "A photo of beautiful mountain with realistic sunset and blue lake, highly detailed, masterpiece",
-                    # "Cute small corgi sitting in a movie theater eating popcorn, unreal engine.",
-                    # "A Pikachu with an angry expression and red eyes, with lightning around it, hyper realistic style.",
-                    # "A dog is reading a thick book.",
-                    # "Three cats having dinner at a table at new years eve, cinematic shot, 8k.",
-                    # "An astronaut riding a pig, highly realistic dslr photo, cinematic shot.",
-                ]
                 with torch.no_grad():
-
-                    ###########################################################################################################
-                    # --------------- # --------------- # --------------- # --------------- # --------------- # ---------------
                     # [1] motion adapter
                     if epoch != 0:
+                        # do also teacher
                         eval_adapter = MotionAdapter.from_config(student_adapter_config)
                         eval_adapter_state_dict = {}
                         for key in student_unet.state_dict().keys():
                             if 'motion' in key:
                                 eval_adapter_state_dict[key] = student_unet.state_dict()[key]
                         eval_adapter.load_state_dict(eval_adapter_state_dict)
+                        evaluation_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",
+                                                                              motion_adapter=eval_adapter,
+                                                                              torch_dtype=torch.float16)
+                        # [3] scheduler
+                        evaluation_pipe.scheduler = LCMScheduler.from_config(evaluation_pipe.scheduler.config,
+                                                                             beta_schedule="linear")
+
+                        # [4] pipe
+                        evaluation_pipe.load_lora_weights("wangfuyun/AnimateLCM",
+                                                          weight_name="AnimateLCM_sd15_t2v_lora.safetensors",
+                                                          adapter_name="lcm-lora")
+                        evaluation_pipe.set_adapters(["lcm-lora"], [0.8])
+
+                        # [5]
+                        eval_unet = evaluation_pipe.unet
+
                     else :
                         # start with teacher adapter
                         eval_adapter = teacher_adapter
-                    # --------------- # --------------- # --------------- # --------------- # --------------- # ---------------
-                    ############################################################################################################
 
                     # [2] basic unet
                     evaluation_pipe = AnimateDiffPipeline.from_pretrained("emilianJR/epiCRealism",
@@ -379,7 +393,7 @@ def main(args):
                     evaluation_pipe.scheduler = LCMScheduler.from_config(evaluation_pipe.scheduler.config,
                                                                          beta_schedule="linear")
 
-                    # [4]
+                    # [4] pipe
                     evaluation_pipe.load_lora_weights("wangfuyun/AnimateLCM",
                                                       weight_name="AnimateLCM_sd15_t2v_lora.safetensors",
                                                       adapter_name="lcm-lora")
@@ -520,15 +534,24 @@ def main(args):
                 if args.do_attention_map_check:
                     loss_attn_map = 0
                     for layer_name in s_attn_dict.keys():
-                        s_attn = s_attn_dict[layer_name]
-                        t_attn = t_attn_dict[layer_name]
-                        for s_attn_, t_attn_ in zip(s_attn, t_attn):
-                            loss_attn_map += F.mse_loss(s_attn_.float(), t_attn_.float(), reduction="mean")
+                        if args.up_module_attention :
+                            if 'up' in layer_name.lower() and 'motion_modules_1' in layer_name.lower() :
+                                s_attn = s_attn_dict[layer_name]
+                                t_attn = t_attn_dict[layer_name]
+                                for s_attn_, t_attn_ in zip(s_attn, t_attn):
+                                    loss_attn_map += F.mse_loss(s_attn_.float(), t_attn_.float(), reduction="mean")
+                        if args.down_module_attention :
+                            if 'up' not in layer_name.lower() :
+                                s_attn = s_attn_dict[layer_name]
+                                t_attn = t_attn_dict[layer_name]
+                                for s_attn_, t_attn_ in zip(s_attn, t_attn):
+                                    loss_attn_map += F.mse_loss(s_attn_.float(), t_attn_.float(), reduction="mean")
 
-            #########################################################################################################
             # [1] Teacher Distillation
-            loss_vlb = F.mse_loss(student_model_pred.float(), target.float(), reduction="mean")
-            loss_distill = F.mse_loss(student_model_pred.float(), teacher_model_pred.float(), reduction="mean")
+            loss_vlb = F.mse_loss(student_model_pred.float(),
+                                  target.float(), reduction="mean")
+            loss_distill = F.mse_loss(student_model_pred.float(),
+                                      teacher_model_pred.float(), reduction="mean")
             total_loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill
             if args.motion_control:
                 total_loss = args.vlb_weight * loss_vlb + args.distill_weight * loss_distill + args.loss_feature_weight * loss_feature
@@ -689,6 +712,9 @@ if __name__ == "__main__":
     parser.add_argument("--hps_version", type=str, default="v2.1", help="hps version: 'v2.0', 'v2.1'")
     parser.add_argument("--do_attention_map_check", action='store_true')
     parser.add_argument("--attn_map_weight", type=float, default=0.5)
+    parser.add_argument("--lr_scale", type=float, default=1.0)
+    parser.add_argument("--up_module_attention", action='store_true')
+    parser.add_argument("--down_module_attention", action='store_true')
     args = parser.parse_args()
     name = Path(args.config).stem
     main(args)

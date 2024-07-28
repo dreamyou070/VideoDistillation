@@ -107,7 +107,7 @@ class BlipCaption(BlipBase):
         >>> from lavis.models import load_model_and_preprocess
         >>> model, vis_processors, txt_processors = load_model_and_preprocess("blip_caption")
         >>> raw_image = Image.open("docs/data/merlion.png").convert("RGB")
-        >>> image = vis_processors["eval"](raw_image).unsqueeze(0)
+        >>> image = vis_processors["eval.txt"](raw_image).unsqueeze(0)
         >>> text_input = ["a large statue of a person spraying water from a fountain"]
         >>> samples = {"image": image, "text_input": text_input}
         >>> output = model(samples)
@@ -164,7 +164,7 @@ class BlipCaption(BlipBase):
         >>> from lavis.models import load_model_and_preprocess
         >>> model, vis_processors, txt_processors = load_model_and_preprocess("blip_caption")
         >>> raw_image = Image.open("docs/data/merlion.png").convert("RGB")
-        >>> image = vis_processors["eval"](raw_image).unsqueeze(0)
+        >>> image = vis_processors["eval.txt"](raw_image).unsqueeze(0)
         >>> samples = {"image": image}
         >>> captions = model.generate(samples)
         >>> captions
